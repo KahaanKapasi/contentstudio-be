@@ -144,3 +144,19 @@ class TwitterPostSuggestion(Base):
     topic_id: Mapped[int] = mapped_column(ForeignKey("topic_candidates.id"), nullable=True)
     draft_text: Mapped[str] = mapped_column(Text, nullable=False)
     status: Mapped[str] = mapped_column(String, default="suggested")  # suggested, posted, discarded
+
+
+class KpiBaseline(Base):
+    """Manual pre-Studio baseline entry — 05_Dashboard_Analytics.md flags that
+    the 'before' window can't be backfilled automatically, so this is a single
+    fixed reference point the user records once, not an event-logged series.
+    Not part of the original Data Dictionary; added to satisfy that doc's own
+    explicit open item ("needs a manual baseline entry")."""
+
+    __tablename__ = "kpi_baselines"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    label: Mapped[str] = mapped_column(String, nullable=False)  # e.g. "Trailing 30 days pre-Studio"
+    posts_per_week: Mapped[float] = mapped_column(Float, nullable=False)
+    avg_engagement_rate: Mapped[float] = mapped_column(Float, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)

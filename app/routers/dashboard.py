@@ -1,18 +1,21 @@
 import json
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models import (
     Article,
     InstagramMetricSnapshot,
+    KpiBaseline,
     PostDraft,
     TopicCandidate,
     TwitterMetricSnapshot,
     TwitterPostSuggestion,
 )
-from app.schemas import InstagramMetricOut, TwitterMetricOut, TwitterSuggestionOut
+from app.schemas import InstagramMetricOut, KpiBaselineIn, KpiBaselineOut, TwitterMetricOut, TwitterSuggestionOut
 from app.services import instagram_client, twitter_client
 from app.services.gemini_client import GeminiNotConfigured, generate_json
 from app.services.instagram_client import InstagramNotConfigured
@@ -121,19 +124,64 @@ def post_suggestion(suggestion_id: int, db: Session = Depends(get_db)):
     return suggestion
 
 
+@router.get("/kpi-baseline", response_model=KpiBaselineOut | None)
+def get_baseline(db: Session = Depends(get_db)):
+    return db.query(KpiBaseline).order_by(KpiBaseline.created_at.desc()).first()
+
+
+@router.put("/kpi-baseline", response_model=KpiBaselineOut)
+def set_baseline(payload: KpiBaselineIn, db: Session = Depends(get_db)):
+    """A single fixed reference point, not a logged series — see KpiBaseline's
+    docstring. PUT always records a new row (keeping prior ones as history)
+    but kpi-summary only ever reads the latest."""
+    baseline = KpiBaseline(**payload.model_dump())
+    db.add(baseline)
+    db.commit()
+    db.refresh(baseline)
+    return baseline
+
+
+def _weeks_since(start: datetime) -> float:
+    now = datetime.now(timezone.utc)
+    start_naive = start.replace(tzinfo=None) if start.tzinfo else start
+    now_naive = now.replace(tzinfo=None)
+    days = max((now_naive - start_naive).total_seconds() / 86400, 1)
+    return days / 7
+
+
 @router.get("/kpi-summary")
 def kpi_summary(db: Session = Depends(get_db)):
-    """Posting cadence/output-volume signal, tracked automatically from this
-    Studio's own records (articles + published post_drafts) — the actual
-    before/after comparison needs a manual pre-Studio baseline entered, since
-    that data doesn't exist retroactively (open item in
-    05_Dashboard_Analytics.md, not resolved by this endpoint)."""
+    """Posting cadence/output-volume signal. 'Since adoption' cadence is
+    computed from this Studio's own records (articles + published post_drafts)
+    against the earliest such record as a stand-in for the adoption date,
+    since there's no explicit 'Studio launch' marker stored anywhere. The
+    before/after comparison itself needs the manual baseline below — that
+    data doesn't exist retroactively (open item in 05_Dashboard_Analytics.md)."""
     articles_published = db.query(Article).filter(Article.status == "published").count()
     posts_published = db.query(PostDraft).filter(PostDraft.status == "published").count()
+
+    earliest = db.query(func.min(Article.created_at)).scalar()
+    earliest_post = db.query(func.min(PostDraft.created_at)).scalar()
+    if earliest_post and (not earliest or earliest_post < earliest):
+        earliest = earliest_post
+
+    posts_per_week_since = None
+    if earliest and (articles_published + posts_published) > 0:
+        posts_per_week_since = round((articles_published + posts_published) / _weeks_since(earliest), 2)
+
+    baseline = db.query(KpiBaseline).order_by(KpiBaseline.created_at.desc()).first()
+
     return {
         "since_studio_adoption": {
             "articles_published": articles_published,
             "posts_published": posts_published,
+            "posts_per_week": posts_per_week_since,
         },
-        "pre_studio_baseline": None,
+        "pre_studio_baseline": {
+            "label": baseline.label,
+            "posts_per_week": baseline.posts_per_week,
+            "avg_engagement_rate": baseline.avg_engagement_rate,
+        }
+        if baseline
+        else None,
     }

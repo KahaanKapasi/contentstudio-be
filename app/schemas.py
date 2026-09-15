@@ -186,3 +186,19 @@ class TwitterSuggestionOut(BaseModel):
     topic_id: int | None
     draft_text: str
     status: str
+
+
+class KpiBaselineIn(BaseModel):
+    label: str
+    posts_per_week: float
+    avg_engagement_rate: float | None = None
+
+
+class KpiBaselineOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    label: str
+    posts_per_week: float
+    avg_engagement_rate: float | None
+    created_at: datetime
