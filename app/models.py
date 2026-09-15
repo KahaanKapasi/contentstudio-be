@@ -53,7 +53,8 @@ class Article(Base):
     published_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
 
 
-# --- Video pipeline schema (schema only — pipeline itself is out of scope for now) ---
+# --- Video pipeline (text-generation steps only: titles + scripts via Gemini; voice/avatar
+# generation is out of scope until an avatar service is chosen, see docs/03_Video_Pipeline.md) ---
 
 
 class VideoTopic(Base):

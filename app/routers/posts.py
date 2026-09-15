@@ -48,26 +48,46 @@ def update_draft(draft_id: int, payload: PostDraftUpdate, db: Session = Depends(
     return draft
 
 
+@router.get("/aspect-ratios")
+def list_aspect_ratios():
+    """Canvas shape options for the Posts editor — kept backend-authoritative
+    so the frontend never hardcodes pixel dimensions that could drift from
+    what render-background/render-preview actually produce."""
+    return [
+        {"id": key, "width": w, "height": h}
+        for key, (w, h) in image_processing.ASPECT_RATIOS.items()
+    ]
+
+
 @router.post("/render-preview")
-async def render_preview(template_name: str, text: str, image: UploadFile = File(...)):
+async def render_preview(
+    template_name: str,
+    text: str,
+    aspect_ratio: str = image_processing.DEFAULT_ASPECT_RATIO,
+    image: UploadFile = File(...),
+):
     """Auto-fit endpoint: applies the given template's treatment to the
     uploaded image + text, returns the composed JPEG directly (for the
     fabric.js editor's initial canvas load / live preview refresh)."""
     image_bytes = await image.read()
     try:
-        rendered = image_processing.render_template(template_name, image_bytes, text)
+        rendered = image_processing.render_template(template_name, image_bytes, text, aspect_ratio)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return Response(content=rendered, media_type="image/jpeg")
 
 
 @router.post("/render-background")
-async def render_background(template_name: str, image: UploadFile = File(...)):
+async def render_background(
+    template_name: str,
+    aspect_ratio: str = image_processing.DEFAULT_ASPECT_RATIO,
+    image: UploadFile = File(...),
+):
     """Treatment only, no text baked in — feeds the live fabric.js editor's
     canvas background so text stays a separately draggable layer client-side."""
     image_bytes = await image.read()
     try:
-        rendered = image_processing.render_background(template_name, image_bytes)
+        rendered = image_processing.render_background(template_name, image_bytes, aspect_ratio)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return Response(content=rendered, media_type="image/jpeg")

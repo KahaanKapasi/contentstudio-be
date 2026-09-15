@@ -5,7 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.database import Base, SessionLocal, engine
 from app.models import Template
-from app.routers import articles, dashboard, discovery, posts
+from app.routers import articles, dashboard, discovery, posts, video
 
 app = FastAPI(title="Content Studio API")
 
@@ -20,6 +20,7 @@ app.include_router(discovery.router)
 app.include_router(articles.router)
 app.include_router(posts.router)
 app.include_router(dashboard.router)
+app.include_router(video.router)
 
 # The 3 fixed templates per 04_Posts_Carousel_Studio.md. A 4th template was
 # mentioned as possibly existing but not fully specified — not built until

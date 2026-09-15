@@ -74,6 +74,38 @@ class ArticleUpdate(BaseModel):
     status: str | None = None
 
 
+class VideoTopicOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    topic_id: int | None
+    title: str
+    suggestion_score: float | None
+    format: str | None
+
+
+class VideoTitlesGenerateRequest(BaseModel):
+    topic_id: int
+
+
+class ScriptOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    video_topic_id: int | None
+    variant: str | None
+    body: str | None
+    selected: bool
+
+
+class ScriptGenerateRequest(BaseModel):
+    video_topic_id: int
+
+
+class ScriptUpdate(BaseModel):
+    selected: bool
+
+
 class TemplateOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
