@@ -1,5 +1,6 @@
 from pathlib import Path
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -11,6 +12,19 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=BASE_DIR.parent / ".env", extra="ignore")
 
     database_url: str = f"sqlite:///{STORAGE_DIR / 'content_studio.db'}"
+
+    @field_validator("database_url")
+    @classmethod
+    def _use_psycopg_driver(cls, v: str) -> str:
+        # Neon/Render/Supabase all hand out plain postgres(ql):// URLs, which
+        # SQLAlchemy defaults to psycopg2 for. We install psycopg (v3)
+        # instead, so upgrade the scheme automatically rather than asking
+        # whoever sets DATABASE_URL to remember the "+psycopg" suffix.
+        if v.startswith("postgres://"):
+            v = "postgresql://" + v[len("postgres://") :]
+        if v.startswith("postgresql://"):
+            v = "postgresql+psycopg://" + v[len("postgresql://") :]
+        return v
     local_access_password: str = ""
 
     gemini_api_key: str = ""
