@@ -6,13 +6,16 @@ from pydantic import BaseModel, ConfigDict, field_validator
 
 
 def _parse_json_text(v: Any, default: Any):
+    if v is None:
+        return default
     if isinstance(v, str):
         if not v:
             return default
         try:
-            return json.loads(v)
+            parsed = json.loads(v)
         except json.JSONDecodeError:
             return default
+        return default if parsed is None else parsed
     return v
 
 

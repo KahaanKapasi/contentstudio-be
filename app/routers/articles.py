@@ -81,6 +81,8 @@ def regenerate(article_id: int, db: Session = Depends(get_db)):
         new_article = article_pipeline.generate_article(db, article.topic_id)
     except GeminiNotConfigured as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
     db.delete(article)
     db.commit()
     return new_article

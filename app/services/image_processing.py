@@ -43,6 +43,10 @@ WATERMARK_TEXT = "@Madridonomy"  # placeholder — swap for the real handle/logo
 FONT_CANDIDATES = [
     "/System/Library/Fonts/Supplemental/Arial Bold.ttf",
     "/System/Library/Fonts/Supplemental/Arial.ttf",
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+    "/usr/share/fonts/dejavu/DejaVuSans-Bold.ttf",
+    "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
+    "/usr/share/fonts/liberation/LiberationSans-Bold.ttf",
 ]
 
 
@@ -56,7 +60,9 @@ def _load_font(size: int) -> ImageFont.FreeTypeFont:
     for path in FONT_CANDIDATES:
         if Path(path).exists():
             return ImageFont.truetype(path, size)
-    return ImageFont.load_default()
+    # Pillow >= 10.1 ships a scalable default font; the bare load_default() is a
+    # fixed tiny bitmap that ignores `size` (what Render's Linux image would hit).
+    return ImageFont.load_default(size)
 
 
 def _fit_cover(img: Image.Image, size: tuple[int, int]) -> Image.Image:
