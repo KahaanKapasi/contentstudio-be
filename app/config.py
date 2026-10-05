@@ -9,7 +9,7 @@ UPLOADS_DIR = STORAGE_DIR / "uploads"
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=(BASE_DIR.parent / ".env", BASE_DIR / ".env"), extra="ignore")
+    model_config = SettingsConfigDict(env_file=(BASE_DIR.parent / ".env", BASE_DIR / ".env"), extra="ignore", env_ignore_empty=True)
 
     database_url: str = f"sqlite:///{STORAGE_DIR / 'content_studio.db'}"
 
