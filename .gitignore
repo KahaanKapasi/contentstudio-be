@@ -4,3 +4,4 @@ __pycache__/
 storage/*.db
 storage/uploads/*
 !storage/uploads/.gitkeep
+.DS_Store

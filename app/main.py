@@ -1,10 +1,12 @@
 import json
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.database import Base, SessionLocal, engine
 from app.models import Template
+from app import auth
+from app.auth import require_access
 from app.routers import articles, dashboard, discovery, posts, video
 
 app = FastAPI(title="Content Studio API")
@@ -16,11 +18,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(discovery.router)
-app.include_router(articles.router)
-app.include_router(posts.router)
-app.include_router(dashboard.router)
-app.include_router(video.router)
+app.include_router(auth.router)
+for _router in (discovery.router, articles.router, posts.router, dashboard.router, video.router):
+    app.include_router(_router, dependencies=[Depends(require_access)])
 
 # The 3 fixed templates per 04_Posts_Carousel_Studio.md. A 4th template was
 # mentioned as possibly existing but not fully specified — not built until
