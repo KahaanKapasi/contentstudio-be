@@ -6,6 +6,8 @@ tier) — this was an open item in the doc; swap this module's implementation
 if a different host is preferred later, callers only depend on `upload_image`.
 """
 
+from urllib.parse import urlparse
+
 import cloudinary
 import cloudinary.uploader
 
@@ -24,7 +26,15 @@ def _ensure_configured():
     if not settings.cloudinary_url:
         raise MediaHostingNotConfigured("CLOUDINARY_URL is not set in .env")
     if not _configured:
-        cloudinary.config(cloudinary_url=settings.cloudinary_url)
+        # cloudinary.config() has no cloudinary_url kwarg; the SDK only reads that
+        # URL from os.environ, but pydantic loads .env without exporting it. Parse it.
+        parsed = urlparse(settings.cloudinary_url)
+        cloudinary.config(
+            cloud_name=parsed.hostname,
+            api_key=parsed.username,
+            api_secret=parsed.password,
+            secure=True,
+        )
         _configured = True
 
 
