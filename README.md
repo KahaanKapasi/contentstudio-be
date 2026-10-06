@@ -52,3 +52,10 @@ Offline and hermetic: temp SQLite DB, all secrets blanked, sockets blocked, Gemi
 
 - Getty search/download is not automatable (bot detection); download manually and upload in Posts.
 - Instagram scraping is a stub; Video voice/avatar generation is not built (service undecided).
+
+## Instagram token auto-refresh
+With an Instagram-Login token (`IG_GRAPH_BASE=https://graph.instagram.com/v21.0`) the app keeps the 60-day token alive itself:
+the live token is stored in the `app_secrets` table (seeded from `IG_ACCESS_TOKEN`, re-seeded if that env var changes) and
+refreshed on startup and before any Instagram call once it is 7+ days old. It lapses only if the app is unused for ~50 days.
+`GET /api/dashboard/instagram/token` shows status (never the token); `POST /api/dashboard/instagram/token/refresh` forces a refresh
+(Instagram requires the token to be 24h old).

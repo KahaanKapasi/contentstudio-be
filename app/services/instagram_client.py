@@ -10,6 +10,7 @@ per the doc's open item).
 import httpx
 
 from app.config import settings
+from app.services import ig_token
 
 # Facebook-Login tokens (EAA...) use graph.facebook.com; Instagram-Login tokens
 # (IGAA...) only work on graph.instagram.com — set IG_GRAPH_BASE accordingly.
@@ -23,6 +24,7 @@ class InstagramNotConfigured(RuntimeError):
 def _require_config():
     if not settings.ig_access_token or not settings.ig_business_account_id:
         raise InstagramNotConfigured("IG_ACCESS_TOKEN / IG_BUSINESS_ACCOUNT_ID not set in .env")
+    ig_token.refresh_if_due()
 
 
 def get_account_metrics() -> dict:
@@ -31,7 +33,7 @@ def get_account_metrics() -> dict:
         f"{GRAPH_BASE}/{settings.ig_business_account_id}",
         params={
             "fields": "followers_count,media_count",
-            "access_token": settings.ig_access_token,
+            "access_token": ig_token.current_token(),
         },
         timeout=15,
     )
@@ -44,7 +46,7 @@ def publish_single_image(image_url: str, caption: str) -> str:
     _require_config()
     container = httpx.post(
         f"{GRAPH_BASE}/{settings.ig_business_account_id}/media",
-        data={"image_url": image_url, "caption": caption, "access_token": settings.ig_access_token},
+        data={"image_url": image_url, "caption": caption, "access_token": ig_token.current_token()},
         timeout=30,
     )
     container.raise_for_status()
@@ -52,7 +54,7 @@ def publish_single_image(image_url: str, caption: str) -> str:
 
     publish = httpx.post(
         f"{GRAPH_BASE}/{settings.ig_business_account_id}/media_publish",
-        data={"creation_id": creation_id, "access_token": settings.ig_access_token},
+        data={"creation_id": creation_id, "access_token": ig_token.current_token()},
         timeout=30,
     )
     publish.raise_for_status()
@@ -66,7 +68,7 @@ def publish_carousel(image_urls: list[str], caption: str) -> str:
     for url in image_urls:
         child = httpx.post(
             f"{GRAPH_BASE}/{settings.ig_business_account_id}/media",
-            data={"image_url": url, "is_carousel_item": "true", "access_token": settings.ig_access_token},
+            data={"image_url": url, "is_carousel_item": "true", "access_token": ig_token.current_token()},
             timeout=30,
         )
         child.raise_for_status()
@@ -78,7 +80,7 @@ def publish_carousel(image_urls: list[str], caption: str) -> str:
             "media_type": "CAROUSEL",
             "children": ",".join(child_ids),
             "caption": caption,
-            "access_token": settings.ig_access_token,
+            "access_token": ig_token.current_token(),
         },
         timeout=30,
     )
@@ -87,7 +89,7 @@ def publish_carousel(image_urls: list[str], caption: str) -> str:
 
     publish = httpx.post(
         f"{GRAPH_BASE}/{settings.ig_business_account_id}/media_publish",
-        data={"creation_id": creation_id, "access_token": settings.ig_access_token},
+        data={"creation_id": creation_id, "access_token": ig_token.current_token()},
         timeout=30,
     )
     publish.raise_for_status()

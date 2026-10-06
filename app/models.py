@@ -185,3 +185,15 @@ class KpiBaseline(Base):
     posts_per_week: Mapped[float] = mapped_column(Float, nullable=False)
     avg_engagement_rate: Mapped[float] = mapped_column(Float, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+
+class AppSecret(Base):
+    """Key/value store for credentials the app rotates itself (e.g. the Instagram
+    long-lived token). Render's env vars are read-only from inside the app, so a
+    refreshed token has to live in the database. Not part of the Data Dictionary."""
+
+    __tablename__ = "app_secrets"
+
+    key: Mapped[str] = mapped_column(String, primary_key=True)
+    value: Mapped[str] = mapped_column(Text, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)

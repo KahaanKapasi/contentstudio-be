@@ -16,7 +16,7 @@ from app.models import (
     TwitterPostSuggestion,
 )
 from app.schemas import InstagramMetricOut, KpiBaselineIn, KpiBaselineOut, TwitterMetricOut, TwitterSuggestionOut
-from app.services import instagram_client, twitter_client
+from app.services import ig_token, instagram_client, twitter_client
 from app.services.gemini_client import GeminiNotConfigured, generate_json
 from app.services.instagram_client import InstagramNotConfigured
 from app.services.twitter_client import TwitterNotConfigured
@@ -27,6 +27,27 @@ router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
 @router.get("/instagram/metrics", response_model=list[InstagramMetricOut])
 def instagram_history(db: Session = Depends(get_db)):
     return db.query(InstagramMetricSnapshot).order_by(InstagramMetricSnapshot.captured_at).all()
+
+
+@router.get("/instagram/token")
+def instagram_token_status():
+    return ig_token.status()
+
+
+@router.post("/instagram/token/refresh")
+def instagram_token_refresh():
+    """Forces a token refresh now (Instagram only allows it once the token is 24h old)."""
+    if not ig_token.status()["configured"]:
+        raise HTTPException(status_code=503, detail="IG_ACCESS_TOKEN not set in .env")
+    before = ig_token.status()["issued_at"]
+    result = ig_token.refresh_if_due(force=True)
+    if not result["refreshable"]:
+        raise HTTPException(status_code=400, detail="Token refresh only applies to Instagram-Login tokens (IG_GRAPH_BASE=https://graph.instagram.com/...)")
+    if result["last_error"]:
+        raise HTTPException(status_code=502, detail=f"Refresh failed: {result['last_error']}")
+    if result["issued_at"] == before:
+        raise HTTPException(status_code=409, detail="Token is younger than 24h; Instagram only refreshes older tokens")
+    return result
 
 
 @router.post("/instagram/refresh", response_model=InstagramMetricOut)

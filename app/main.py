@@ -1,4 +1,5 @@
 import json
+import threading
 
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -8,6 +9,7 @@ from app.models import Template
 from app import auth
 from app.auth import require_access
 from app.routers import articles, dashboard, discovery, posts, video
+from app.services import ig_token
 
 app = FastAPI(title="Content Studio API")
 
@@ -68,6 +70,8 @@ def seed_templates():
 def on_startup():
     Base.metadata.create_all(bind=engine)
     seed_templates()
+    # Off the request path: a due refresh is one HTTP call and must not delay cold start.
+    threading.Thread(target=ig_token.refresh_if_due, daemon=True).start()
 
 
 @app.get("/api/health")
