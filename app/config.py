@@ -39,6 +39,7 @@ class Settings(BaseSettings):
     ig_business_account_id: str = ""
     ig_access_token: str = ""
     ig_page_id: str = ""
+    ig_graph_base: str = "https://graph.facebook.com/v21.0"
 
     x_bearer_token: str = ""
     x_api_key: str = ""

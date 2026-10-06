@@ -11,7 +11,9 @@ import httpx
 
 from app.config import settings
 
-GRAPH_BASE = "https://graph.facebook.com/v21.0"
+# Facebook-Login tokens (EAA...) use graph.facebook.com; Instagram-Login tokens
+# (IGAA...) only work on graph.instagram.com — set IG_GRAPH_BASE accordingly.
+GRAPH_BASE = settings.ig_graph_base.rstrip("/")
 
 
 class InstagramNotConfigured(RuntimeError):
