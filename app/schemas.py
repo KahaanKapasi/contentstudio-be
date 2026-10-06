@@ -1,5 +1,5 @@
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, field_validator
@@ -205,3 +205,86 @@ class KpiBaselineOut(BaseModel):
     posts_per_week: float
     avg_engagement_rate: float | None
     created_at: datetime
+
+
+# --- Video generation (prompt in -> mp4 out) ---
+
+
+class SourceLink(BaseModel):
+    title: str
+    url: str
+
+
+class ModelInfoOut(BaseModel):
+    id: str
+    label: str
+    aspect_ratios: list[str]
+    durations: list[int]
+    resolutions: list[str]
+    price_per_second_usd: dict[str, float] | None
+    notes: str | None
+
+
+class ProviderInfoOut(BaseModel):
+    id: str
+    label: str
+    configured: bool
+    missing_keys: list[str]
+    default_model: str
+    models: list[ModelInfoOut]
+
+
+class PromptImproveRequest(BaseModel):
+    idea: str
+    research: bool = False
+    aspect_ratio: str = "16:9"
+    duration_seconds: int = 8
+
+
+class PromptImproveOut(BaseModel):
+    prompt: str
+    sources: list[SourceLink]
+    research_notes: str | None
+
+
+class VideoGenerationCreate(BaseModel):
+    prompt: str
+    original_idea: str | None = None
+    provider: str
+    model: str
+    aspect_ratio: str
+    duration_seconds: int
+    resolution: str
+    research_sources: list[SourceLink] = []
+
+
+class VideoGenerationOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    prompt: str
+    original_idea: str | None
+    provider: str
+    model: str
+    aspect_ratio: str
+    duration_seconds: int
+    resolution: str
+    status: str
+    error: str | None
+    has_file: bool
+    video_url: str | None
+    research_sources: list[SourceLink] = []
+    estimated_cost_usd: float | None
+    created_at: datetime
+    completed_at: datetime | None
+
+    @field_validator("research_sources", mode="before")
+    @classmethod
+    def _parse_sources(cls, v):
+        return _parse_json_text(v, [])
+
+    @field_validator("created_at", "completed_at")
+    @classmethod
+    def _as_utc(cls, v: datetime | None):
+        # SQLite returns naive UTC; make the ISO string say so, or browsers read it as local time.
+        return v.replace(tzinfo=timezone.utc) if v is not None and v.tzinfo is None else v

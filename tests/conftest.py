@@ -14,6 +14,9 @@ os.environ["DATABASE_URL"] = f"sqlite:///{_TEST_DB}"
 for _name in (
     "LOCAL_ACCESS_PASSWORD",
     "GEMINI_API_KEY",
+    "HF_API_KEY_ID",
+    "HF_API_KEY_SECRET",
+    "MUAPI_API_KEY",
     "IG_BUSINESS_ACCOUNT_ID",
     "IG_ACCESS_TOKEN",
     "IG_PAGE_ID",
@@ -43,6 +46,9 @@ assert Path(engine.url.database) == _TEST_DB, "tests must never run against the 
 _SECRET_FIELDS = (
     "local_access_password",
     "gemini_api_key",
+    "hf_api_key_id",
+    "hf_api_key_secret",
+    "muapi_api_key",
     "ig_business_account_id",
     "ig_access_token",
     "ig_page_id",
@@ -62,6 +68,14 @@ def blank_settings(monkeypatch):
     for field in _SECRET_FIELDS:
         monkeypatch.setattr(settings, field, "")
     monkeypatch.setattr(gemini_client, "_client", None)
+
+
+@pytest.fixture(autouse=True)
+def isolated_video_storage(monkeypatch, tmp_path):
+    from app.services import video_generation
+
+    monkeypatch.setattr(video_generation, "VIDEOS_DIR", tmp_path / "videos")
+    monkeypatch.setattr(video_generation, "POLL_INTERVAL_S", 0)
 
 
 @pytest.fixture(autouse=True)

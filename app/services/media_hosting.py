@@ -33,3 +33,10 @@ def upload_image(image_bytes: bytes, public_id: str | None = None) -> str:
     _ensure_configured()
     result = cloudinary.uploader.upload(image_bytes, public_id=public_id, resource_type="image")
     return result["secure_url"]
+
+
+def upload_video(path: str, public_id: str | None = None) -> str:
+    """Uploads a local video file (chunked, so big mp4s are fine), returns the public HTTPS URL."""
+    _ensure_configured()
+    result = cloudinary.uploader.upload_large(path, public_id=public_id, resource_type="video")
+    return result["secure_url"]

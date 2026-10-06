@@ -88,6 +88,31 @@ class VideoAsset(Base):
     status: Mapped[str] = mapped_column(String, default="pending")
 
 
+class VideoGeneration(Base):
+    """One prompt-to-video job (Veo / Higgsfield). The provider runs it asynchronously; the
+    provider_* columns are what let a restarted server resume polling."""
+
+    __tablename__ = "video_generations"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    prompt: Mapped[str] = mapped_column(Text, nullable=False)
+    original_idea: Mapped[str] = mapped_column(Text, nullable=True)
+    provider: Mapped[str] = mapped_column(String, nullable=False)  # veo, higgsfield
+    model: Mapped[str] = mapped_column(String, nullable=False)
+    aspect_ratio: Mapped[str] = mapped_column(String, nullable=False)
+    duration_seconds: Mapped[int] = mapped_column(Integer, nullable=False)
+    resolution: Mapped[str] = mapped_column(String, nullable=False)
+    status: Mapped[str] = mapped_column(String, default="queued")  # queued, running, succeeded, failed
+    error: Mapped[str] = mapped_column(Text, nullable=True)
+    research_sources: Mapped[str] = mapped_column(Text, nullable=True)  # JSON array of {title, url}
+    provider_job_id: Mapped[str] = mapped_column(String, nullable=True)  # Veo operation name / Higgsfield request_id
+    provider_status_url: Mapped[str] = mapped_column(String, nullable=True)
+    local_path: Mapped[str] = mapped_column(String, nullable=True)  # file name inside storage/videos/, e.g. 12.mp4
+    video_url: Mapped[str] = mapped_column(String, nullable=True)  # public hosted URL (Cloudinary), if configured
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    completed_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
+
+
 # --- Posts / Carousel Studio ---
 
 

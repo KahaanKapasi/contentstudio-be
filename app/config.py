@@ -6,6 +6,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 BASE_DIR = Path(__file__).resolve().parent.parent
 STORAGE_DIR = BASE_DIR / "storage"
 UPLOADS_DIR = STORAGE_DIR / "uploads"
+VIDEOS_DIR = STORAGE_DIR / "videos"
 
 
 class Settings(BaseSettings):
@@ -28,6 +29,12 @@ class Settings(BaseSettings):
     local_access_password: str = ""
 
     gemini_api_key: str = ""
+    gemini_text_model: str = "gemini-3.7-flash"
+
+    hf_api_key_id: str = ""
+    hf_api_key_secret: str = ""
+
+    muapi_api_key: str = ""
 
     ig_business_account_id: str = ""
     ig_access_token: str = ""
