@@ -6,3 +6,7 @@ storage/uploads/*
 !storage/uploads/.gitkeep
 storage/videos/*
 .DS_Store
+.env
+.env.*
+!.env.example
+storage/videos/*
