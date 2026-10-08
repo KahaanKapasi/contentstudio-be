@@ -81,7 +81,7 @@ def _design_scene(ctx) -> None:
         cues = [{"start": s["start"], "end": s["end"], "text": s["text"]} for s in ctx.data["tts"]["sentences"]]
     base = prompt.scene_prompt(
         brief=p["brief"], data=p.get("data", ""), aspect=p["aspect"], width=w, height=h, duration=duration,
-        palette=p.get("palette", "auto"), cues=cues, assets=[],
+        palette=p.get("palette", "auto"), cues=cues, assets=[], captions=bool(cues) and bool(p.get("subtitles")),
     )
     try:
         code = codegen.write_scene(base, width=w, height=h, fps=ffmpeg.FPS, duration=duration, assets={})

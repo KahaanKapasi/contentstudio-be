@@ -50,17 +50,19 @@ def test_placeholder_engines_have_full_recipes_and_coming_soon(client):
     assert [r["id"] for r in engines["shorts"]["recipes"]] == ["dance", "film"]
     assert [r["id"] for r in engines["explainer3d"]["recipes"]] == ["whatif"]
     for eid in ("skill", "toons", "shorts", "explainer3d"):
-        assert engines[eid]["description"].endswith("(coming soon)")
-        assert all(r["description"].endswith("(coming soon)") and r["fields"] for r in engines[eid]["recipes"])
+        soon = not registry.engines()[eid].implemented  # implemented engines drop the "(coming soon)" suffix
+        assert engines[eid]["description"].endswith("(coming soon)") is soon
+        assert all(r["description"].endswith("(coming soon)") is soon and r["fields"] for r in engines[eid]["recipes"])
     dance = {f["name"]: f for f in engines["shorts"]["recipes"][0]["fields"]}
     assert dance["keep_audio"]["default"] is False and dance["trend_video"]["type"] == "video"
     sketch = {f["name"] for f in engines["toons"]["recipes"][0]["fields"]}
     assert "motion_quality" in sketch
 
 
-@pytest.mark.parametrize("engine,recipe", [("skill", "podcast"), ("toons", "sketch"), ("shorts", "dance"), ("explainer3d", "whatif")])
-def test_coming_soon_engines_return_501(client, engine, recipe):
-    assert create(client, engine, recipe, {"topic": "x"}).status_code == 501
+def test_unimplemented_engine_returns_501(client, monkeypatch):
+    # toons / shorts / explainer3d are implemented now (see test_studio_scenefilm.py); the 501 gate still exists for any placeholder
+    monkeypatch.setattr(registry.engines()["toons"], "implemented", False)
+    assert create(client, "toons", "sketch", {"premise": "x"}).status_code == 501
 
 
 def test_unknown_engine_and_missing_recipe(client):

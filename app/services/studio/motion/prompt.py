@@ -47,7 +47,28 @@ Rules:
   for at least 1 s and end with scene.fade_out(0.5). Stagger lists with stagger() or a per-item `at`.
 - Use at most ~60 elements. Use the palette colours (scene.palette.*) rather than raw hex, except for brand colours the brief names.
 - If narration timing cues are given, trigger each beat at its cue time so visuals match the voice.
+- Use the whole canvas: spread the content over the full content band given under "Layout" (do not cluster everything in one part of the frame).
 '''
+
+
+def layout_guidance(width: int, height: int, captions: bool) -> str:
+    """Where content may go. Tall (9:16) frames used to cluster in the top ~60%; give the model an explicit vertical plan."""
+    if height > width:
+        bottom = 0.70 if captions else 0.82
+        caption_line = (
+            f"Burned-in captions will cover y = {0.72 * height:.0f}-{0.84 * height:.0f} px (the lower third), so keep ALL content above y = {bottom * height:.0f} px and leave that strip empty."
+            if captions else
+            f"Nothing else is drawn over the frame, but platform UI covers everything below y = {0.82 * height:.0f} px."
+        )
+        return f"""Layout (tall {width}x{height} frame, vertical distribution matters):
+- The content band is y = {0.09 * height:.0f} to {bottom * height:.0f} px ({100 * bottom - 9:.0f}% of the height). {caption_line}
+- Divide the band into 3-5 rows with Box.split (e.g. `title, hero, detail = band.split(2, 5, 3)` where `band = Box(scene.safe.x, scene.safe.y, scene.safe.w, {bottom * height:.0f} - scene.safe.y)`) and put a real element in EVERY row.
+- Visual centre of mass near the vertical middle of the band; the lowest main element should end close to y = {bottom * height:.0f} px, the highest start near y = {0.09 * height:.0f} px.
+- A hero number/graphic belongs in the middle rows, not the top. Lists, bars and cards should stretch across the band using grid()/rows() with the full band height.
+- Never leave more than ~15% of the content band empty at the bottom or the top."""
+    if width > height:
+        return f"""Layout (wide {width}x{height} frame): use the full width; keep content between y = {0.08 * height:.0f} and y = {(0.78 if captions else 0.92) * height:.0f} px"""
+    return f"""Layout (square {width}x{height} frame): centre the composition and fill the safe box evenly; keep content above y = {(0.74 if captions else 0.93) * height:.0f} px"""
 
 
 def _frame_line(aspect: str, w: int, h: int, duration: float) -> str:
@@ -66,7 +87,7 @@ Short punchy sentences, a hook in the first sentence, no emoji, no stage directi
 Return JSON: {{"title": "<max 6 words>", "narration": "<the voice-over text>"}}"""
 
 
-def scene_prompt(*, brief: str, data: str, aspect: str, width: int, height: int, duration: float, palette: str, cues: list[dict], assets: list[str]) -> str:
+def scene_prompt(*, brief: str, data: str, aspect: str, width: int, height: int, duration: float, palette: str, cues: list[dict], assets: list[str], captions: bool = False) -> str:
     examples = "\n\n".join(f"Example: {name}\n```python\n{code.strip()}\n```" for name, code in EXAMPLES)
     cue_text = "\n".join(f"  {c['start']:.1f}s-{c['end']:.1f}s: {c['text']}" for c in cues) or "  (no narration: pace the beats yourself)"
     palette_line = f'Use palette="{palette}".' if palette and palette != "auto" else "Choose the palette that best fits the brief."
@@ -83,6 +104,7 @@ Data (use exactly these numbers; do not invent others):
 Narration timing cues (sync visual beats to these):
 {cue_text}
 {REFERENCE}{RULES}
+{layout_guidance(width, height, captions)}
 {examples}
 
 Now write the scene for the brief above."""
