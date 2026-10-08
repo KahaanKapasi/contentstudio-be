@@ -8,7 +8,8 @@ from app.database import get_db
 from app.models import PostDraft, Template
 from app.schemas import PostDraftCreate, PostDraftOut, PostDraftUpdate, TemplateOut
 from app.services import getty_client, image_processing, match_day, media_hosting
-from app.services.gemini_client import GeminiNotConfigured
+from app.services.costs import ledger
+from app.services.gemini_client import GeminiNotConfigured, track_usage
 from app.services.instagram_client import InstagramNotConfigured, publish_carousel, publish_single_image
 from app.services.media_hosting import MediaHostingNotConfigured
 
@@ -131,7 +132,8 @@ def match_scrape(team: str = "Real Madrid", db: Session = Depends(get_db)):
     suggestion as its own PostDraft (source=match_scrape) so the Posts
     screen's suggestions list is just the normal drafts list."""
     try:
-        opinions = match_day.suggest_opinions(team)
+        with track_usage() as usage:
+            opinions = match_day.suggest_opinions(team)
     except GeminiNotConfigured as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
@@ -143,6 +145,9 @@ def match_scrape(team: str = "Real Madrid", db: Session = Depends(get_db)):
     db.commit()
     for d in created:
         db.refresh(d)
+    if usage or opinions:
+        # X search reads are not metered per call, so the ledger keeps the estimate midpoint and notes the measured Gemini part.
+        ledger.log_event("posts.match_scrape", details={"team": team, "drafts": len(created), "gemini_actual_usd": ledger.usage_cost_usd(usage)})
     return created
 
 

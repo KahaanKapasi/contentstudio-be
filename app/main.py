@@ -8,7 +8,7 @@ from app.database import Base, SessionLocal, engine
 from app.models import Template
 from app import auth
 from app.auth import require_access
-from app.routers import articles, dashboard, discovery, posts, studio, video
+from app.routers import articles, costs, dashboard, discovery, posts, studio, video
 from app.services import ig_token
 
 app = FastAPI(title="Content Studio API")
@@ -21,7 +21,7 @@ app.add_middleware(
 )
 
 app.include_router(auth.router)
-for _router in (discovery.router, articles.router, posts.router, dashboard.router, video.router, studio.router):
+for _router in (discovery.router, articles.router, posts.router, dashboard.router, video.router, studio.router, costs.router):
     app.include_router(_router, dependencies=[Depends(require_access)])
 
 # The 3 fixed templates per 04_Posts_Carousel_Studio.md. A 4th template was

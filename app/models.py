@@ -222,3 +222,20 @@ class AppSecret(Base):
     key: Mapped[str] = mapped_column(String, primary_key=True)
     value: Mapped[str] = mapped_column(Text, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
+
+
+class CostEvent(Base):
+    """Ledger of paid actions (docs/11_Cost_Awareness.md). `actual_usd` is only set when measurable
+    (Gemini usage_metadata tokens x price, Veo seconds x price); otherwise the estimate range is all we know."""
+
+    __tablename__ = "cost_events"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    action: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    ref_type: Mapped[str] = mapped_column(String, nullable=True)
+    ref_id: Mapped[int] = mapped_column(Integer, nullable=True)
+    estimated_low_usd: Mapped[float] = mapped_column(Float, nullable=True)
+    estimated_high_usd: Mapped[float] = mapped_column(Float, nullable=True)
+    actual_usd: Mapped[float] = mapped_column(Float, nullable=True)
+    details: Mapped[str] = mapped_column(Text, nullable=True)  # JSON
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, index=True)

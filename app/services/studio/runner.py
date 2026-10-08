@@ -21,6 +21,7 @@ from app.config import PROJECTS_DIR, settings
 from app.database import SessionLocal
 from app.models import VideoProject, utcnow
 from app.services import media_hosting
+from app.services.costs import ledger
 from app.services.gemini_client import GeminiNotConfigured
 from app.services.studio import registry
 from app.services.studio.kit.ffmpeg import FFmpegError
@@ -284,6 +285,12 @@ def _execute(db: Session, project_id: int) -> None:
         except Exception:  # hosting is a bonus; the local file is safe
             log.warning("cloudinary upload failed for studio project %s", project.id, exc_info=True)
     _persist(db, project, ctx, done, status="succeeded", stage="Done", progress=100, local_path=FINAL_NAME, video_url=video_url, error=None, completed_at=utcnow())
+    ledger.log_event(
+        "studio.project",
+        {"engine": project.engine, "recipe": project.recipe, "params": params, "estimated_usd": project.estimated_cost_usd},
+        ref_type="video_project", ref_id=project.id,
+        details={"engine": project.engine, "recipe": project.recipe},
+    )
 
 
 def _fail(db: Session, project: VideoProject, ctx: Ctx, done: list[str], message: str) -> None:

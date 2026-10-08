@@ -19,6 +19,7 @@ from app.config import VIDEOS_DIR, settings
 from app.database import SessionLocal
 from app.models import VideoGeneration, utcnow
 from app.services import gemini_client, media_hosting
+from app.services.costs import ledger
 from app.services.video_providers import (
     JobHandle,
     JobParams,
@@ -322,6 +323,13 @@ def _finalize(db: Session, gen: VideoGeneration, provider, output, age: float) -
     gen.error = None
     gen.completed_at = utcnow()
     db.commit()
+    ledger.log_event(
+        "video.generation",
+        {"provider": gen.provider, "model": gen.model, "resolution": gen.resolution, "duration_seconds": gen.duration_seconds},
+        ref_type="video_generation", ref_id=gen.id,
+        actual_usd=catalog.estimate_cost(gen.provider, gen.model, gen.resolution, gen.duration_seconds),  # known per-second price (None if unpriced)
+        details={"provider": gen.provider, "model": gen.model},
+    )
 
 
 def _fail(db: Session, gen: VideoGeneration, message: str) -> None:

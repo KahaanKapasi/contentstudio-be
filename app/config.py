@@ -57,6 +57,10 @@ class Settings(BaseSettings):
 
     cloudinary_url: str = ""
 
+    # Cost awareness: optional JSON map of price id -> usd that overrides the built-in price table,
+    # e.g. {"gemini.image.out": 0.08}. See app/services/costs/prices.py.
+    price_overrides_json: str = ""
+
     getty_username: str = ""
     getty_password: str = ""
 

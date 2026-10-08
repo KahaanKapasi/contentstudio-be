@@ -5,7 +5,8 @@ from app.database import get_db
 from app.models import TopicCandidate
 from app.schemas import TopicCandidateOut, TopicStatusUpdate
 from app.services import discovery
-from app.services.gemini_client import GeminiNotConfigured
+from app.services.costs import ledger, prices
+from app.services.gemini_client import GeminiNotConfigured, track_usage
 
 router = APIRouter(prefix="/api/discovery", tags=["discovery"])
 
@@ -44,14 +45,31 @@ def trigger_scrape(db: Session = Depends(get_db)):
     """
     collect_result = discovery.collect(db)
     try:
-        topics = discovery.generate_topics(db, scraped_item_ids=collect_result["scraped_item_ids"])
+        with track_usage() as usage:
+            topics = discovery.generate_topics(db, scraped_item_ids=collect_result["scraped_item_ids"])
     except GeminiNotConfigured as exc:
         return {
             "source_health": collect_result["source_health"],
             "topics_created": 0,
             "error": str(exc),
         }
+    x_reads = sum(h["item_count"] for h in collect_result["source_health"] if h["source"] == "twitter" and h["ok"])
+    if usage or x_reads:  # nothing billable happened when there were no items and no X reads
+        ledger.log_event(
+            "discovery.scrape",
+            {"n_items": len(collect_result["scraped_item_ids"]), "include_x": x_reads > 0, "x_reads": x_reads},
+            usage=usage,
+            actual_usd=_with_x(ledger.usage_cost_usd(usage), x_reads),
+            details={"topics_created": len(topics), "x_reads": x_reads},
+        )
     return {
         "source_health": collect_result["source_health"],
         "topics_created": len(topics),
     }
+
+
+def _with_x(gemini_usd: float | None, x_reads: int) -> float | None:
+    """Actual spend = measured Gemini cost + X reads at the per-read price (None if neither is known)."""
+    if gemini_usd is None and not x_reads:
+        return None
+    return round((gemini_usd or 0.0) + x_reads * prices.usd("x.post_read"), 6)

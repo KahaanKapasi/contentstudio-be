@@ -11,12 +11,13 @@ import numpy as np
 from PIL import Image
 
 from app.config import settings
+from app.services.costs import prices
 from app.services import gemini_client
 from app.services.studio import registry
 from app.services.studio.kit import captions, ffmpeg
 from app.services.studio.registry import StageError
 
-IMAGE_COST_USD = 0.04  # Gemini image generation, per image; an estimate (Google bills per output image token)
+IMAGE_COST_USD = prices.usd("gemini.image.out")  # Gemini image generation, per 1K image (costs/prices.py)
 WORDS_PER_SECOND = 2.5  # relaxed spoken pace, used to size scripts
 
 _JSON_FENCE = re.compile(r"```(?:json)?\s*(.*?)```", re.DOTALL)

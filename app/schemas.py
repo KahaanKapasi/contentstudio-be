@@ -328,6 +328,8 @@ class StudioProjectOut(BaseModel):
     has_file: bool
     video_url: str | None
     estimated_cost_usd: float | None
+    estimated_cost_low_usd: float | None = None
+    estimated_cost_high_usd: float | None = None
     created_at: datetime
     completed_at: datetime | None
 

@@ -97,11 +97,11 @@ def test_assign_photos_by_name_then_order(tmp_path):
 def test_clip_len_and_estimates():
     assert sf.clip_len({"clip_provider": "veo"}, 3.0) == 4 and sf.clip_len({"clip_provider": "veo"}, 4.4) == 6 and sf.clip_len({"clip_provider": "veo"}, 20) == 8
     cheap = sf.estimate({"motion_quality": "cheap"}, [3, 3, 3], 5)
-    assert cheap == {"images": 5, "image_usd": 0.2, "clip_seconds": 0, "clip_usd": 0.0, "usd": 0.2}
+    assert cheap == {"images": 5, "image_usd": 0.335, "clip_seconds": 0, "clip_usd": 0.0, "usd": 0.335}
     ai = sf.estimate({"motion_quality": "ai", "clip_provider": "veo"}, [3, 5, 7], 6)
-    assert ai["clip_seconds"] == 4 + 6 + 8 and ai["clip_usd"] == pytest.approx(0.9) and ai["usd"] == pytest.approx(1.14)  # Veo 3.1 Lite 720p $0.05/s
+    assert ai["clip_seconds"] == 4 + 6 + 8 and ai["clip_usd"] == pytest.approx(0.9) and ai["usd"] == pytest.approx(1.302)  # Veo 3.1 Lite 720p $0.05/s
     mu = sf.estimate({"motion_quality": "ai", "clip_provider": "muapi"}, [3, 5], 4)
-    assert mu["clip_usd"] is None and mu["usd"] == 0.16  # Muapi clips are unpriced: only the images count
+    assert mu["clip_usd"] is None and mu["usd"] == pytest.approx(0.268)  # Muapi clips are unpriced: only the images count
 
 
 # --- engine runs ---

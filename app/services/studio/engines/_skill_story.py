@@ -67,7 +67,7 @@ def image_index(line: int, n_lines: int) -> int:
 
 
 def estimate_cost(params: dict, plan: dict) -> float | None:
-    return round(plan.get("image_count", image_count(int(params.get("lines", 8)))) * common.IMAGE_COST_USD, 2)
+    return round(plan.get("image_count", image_count(int(params.get("lines", 8)))) * common.IMAGE_COST_USD, 3)
 
 
 # --- plan phase ---

@@ -33,6 +33,9 @@ def _out(project: VideoProject) -> StudioProjectOut:
             "plan": plan if plan else None,
             "previews": previews,
             "has_file": runner.local_file(project) is not None,
+            # +-25% around the engine's point estimate (same widening as POST /api/costs/estimate)
+            "estimated_cost_low_usd": None if project.estimated_cost_usd is None else round(project.estimated_cost_usd * 0.75, 4),
+            "estimated_cost_high_usd": None if project.estimated_cost_usd is None else round(project.estimated_cost_usd * 1.25, 4),
         }
     )
 

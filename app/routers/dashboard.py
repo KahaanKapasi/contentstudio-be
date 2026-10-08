@@ -17,7 +17,8 @@ from app.models import (
 )
 from app.schemas import InstagramMetricOut, KpiBaselineIn, KpiBaselineOut, TwitterMetricOut, TwitterSuggestionOut
 from app.services import ig_token, instagram_client, twitter_client
-from app.services.gemini_client import GeminiNotConfigured, generate_json
+from app.services.costs import ledger
+from app.services.gemini_client import GeminiNotConfigured, generate_json, track_usage
 from app.services.instagram_client import InstagramNotConfigured
 from app.services.twitter_client import TwitterNotConfigured
 
@@ -89,6 +90,7 @@ def twitter_refresh(username: str, db: Session = Depends(get_db)):
     db.add(snapshot)
     db.commit()
     db.refresh(snapshot)
+    ledger.log_event("dashboard.twitter_refresh", ref_type="twitter_snapshot", ref_id=snapshot.id)
     return snapshot
 
 
@@ -113,7 +115,8 @@ Topics:
 {topics_block}
 """
     try:
-        raw = generate_json(prompt)
+        with track_usage() as usage:
+            raw = generate_json(prompt)
     except GeminiNotConfigured as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
@@ -127,6 +130,7 @@ Topics:
     db.commit()
     for s in created:
         db.refresh(s)
+    ledger.log_event("dashboard.twitter_suggestions", usage=usage, details={"created": len(created)})
     return created
 
 
@@ -142,6 +146,7 @@ def post_suggestion(suggestion_id: int, db: Session = Depends(get_db)):
     suggestion.status = "posted"
     db.commit()
     db.refresh(suggestion)
+    ledger.log_event("dashboard.twitter_post", {"text": suggestion.draft_text}, ref_type="twitter_suggestion", ref_id=suggestion.id)
     return suggestion
 
 

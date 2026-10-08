@@ -24,11 +24,12 @@ from app.services.studio.engines import _shared
 from app.services.studio.kit import clips as kitclips
 from app.services.studio.kit import ffmpeg, images, tts
 from app.services.studio.registry import Engine, FieldSpec, RecipeSpec, Stage, StageError, ValidationError
+from app.services.costs import prices
 from app.services.video_providers import catalog
 
 # --- shared field specs ---
 
-IMAGE_COST_USD = 0.04  # approx. per Gemini image (character sheets + one still per shot)
+IMAGE_COST_USD = prices.usd("gemini.image.out")  # per Gemini image (character sheets + one still per shot), 1K
 MAX_CHARACTERS = 6
 CARD_S = 2.2
 XFADE_S = 0.25
@@ -382,8 +383,8 @@ def estimate(params: dict, durations: list[float], n_images: int) -> dict:
                 priced = False
             else:
                 clip_usd += c
-    return {"images": n_images, "image_usd": round(n_images * IMAGE_COST_USD, 2), "clip_seconds": clip_s, "clip_usd": round(clip_usd, 2) if priced else None,
-            "usd": round(usd + clip_usd, 2)}
+    return {"images": n_images, "image_usd": round(n_images * IMAGE_COST_USD, 3), "clip_seconds": clip_s, "clip_usd": round(clip_usd, 3) if priced else None,
+            "usd": round(usd + clip_usd, 3)}
 
 
 # --- stages ---
@@ -728,3 +729,17 @@ class SceneFilmEngine(Engine):
     def estimate_cost(self, recipe: RecipeSpec, params: dict, plan: dict) -> float | None:
         est = (plan or {}).get("estimate")
         return est["usd"] if est else None
+
+    def preplan_estimate(self, recipe: RecipeSpec, params: dict) -> dict:
+        """Cost bounds before any plan exists (used by the cost layer): shot count x planned shot length."""
+        fl = self.flavours[recipe.id]
+        count = next((f.default for f in recipe.fields if f.name == fl.count_param), 5)
+        n = int(params.get(fl.count_param) or count or 5)
+        lo_s, hi_s = fl.shot_len
+        n_chars = (1, 1 if fl.kind != "dialogue" else 4)
+        out = {"images": (n + n_chars[0], n + n_chars[1]), "clip_seconds": (0, 0), "provider": None, "model": None, "resolution": None}
+        if is_ai(params):
+            provider, model, res = ai_target(params)
+            out.update(provider=provider, model=model, resolution=res,
+                       clip_seconds=(n * clip_len(params, lo_s), n * clip_len(params, hi_s)))
+        return out

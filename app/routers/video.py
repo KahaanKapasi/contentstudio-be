@@ -17,7 +17,8 @@ from app.schemas import (
     VideoTopicOut,
 )
 from app.services import video_generation, video_pipeline
-from app.services.gemini_client import GeminiNotConfigured
+from app.services.costs import ledger
+from app.services.gemini_client import GeminiNotConfigured, track_usage
 from app.services.video_providers import ProviderNotConfigured, catalog
 
 router = APIRouter(prefix="/api/video", tags=["video"])
@@ -26,7 +27,10 @@ router = APIRouter(prefix="/api/video", tags=["video"])
 @router.post("/generate-titles", response_model=list[VideoTopicOut])
 def generate_titles(payload: VideoTitlesGenerateRequest, db: Session = Depends(get_db)):
     try:
-        return video_pipeline.generate_video_titles(db, payload.topic_id)
+        with track_usage() as usage:
+            result = video_pipeline.generate_video_titles(db, payload.topic_id)
+        ledger.log_event("video.titles", ref_type="topic", ref_id=payload.topic_id, usage=usage)
+        return result
     except GeminiNotConfigured as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except ValueError as exc:
@@ -44,7 +48,10 @@ def list_video_topics(topic_id: int | None = None, db: Session = Depends(get_db)
 @router.post("/scripts/generate", response_model=list[ScriptOut])
 def generate_scripts(payload: ScriptGenerateRequest, db: Session = Depends(get_db)):
     try:
-        return video_pipeline.generate_scripts(db, payload.video_topic_id)
+        with track_usage() as usage:
+            result = video_pipeline.generate_scripts(db, payload.video_topic_id)
+        ledger.log_event("video.scripts", ref_type="video_topic", ref_id=payload.video_topic_id, usage=usage)
+        return result
     except GeminiNotConfigured as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except ValueError as exc:
@@ -109,9 +116,12 @@ def list_providers():
 @router.post("/prompt/improve", response_model=PromptImproveOut)
 def improve_prompt(payload: PromptImproveRequest):
     try:
-        return video_generation.improve_prompt(
-            payload.idea, payload.research, payload.aspect_ratio, payload.duration_seconds
-        )
+        with track_usage() as usage:
+            result = video_generation.improve_prompt(
+                payload.idea, payload.research, payload.aspect_ratio, payload.duration_seconds
+            )
+        ledger.log_event("video.prompt_improve", {"research": payload.research}, usage=usage)
+        return result
     except GeminiNotConfigured as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except ValueError as exc:

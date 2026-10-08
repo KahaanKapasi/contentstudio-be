@@ -8,7 +8,8 @@ from app.database import get_db
 from app.models import Article
 from app.schemas import ArticleGenerateRequest, ArticleOut, ArticleUpdate
 from app.services import article_pipeline
-from app.services.gemini_client import GeminiNotConfigured
+from app.services.costs import ledger
+from app.services.gemini_client import GeminiNotConfigured, track_usage
 
 router = APIRouter(prefix="/api/articles", tags=["articles"])
 
@@ -29,11 +30,14 @@ def get_article(article_id: int, db: Session = Depends(get_db)):
 @router.post("/generate", response_model=ArticleOut)
 def generate(payload: ArticleGenerateRequest, db: Session = Depends(get_db)):
     try:
-        return article_pipeline.generate_article(db, payload.topic_id)
+        with track_usage() as usage:
+            article = article_pipeline.generate_article(db, payload.topic_id)
     except GeminiNotConfigured as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    ledger.log_event("articles.generate", ref_type="article", ref_id=article.id, usage=usage)
+    return article
 
 
 @router.patch("/{article_id}", response_model=ArticleOut)
@@ -78,11 +82,13 @@ def regenerate(article_id: int, db: Session = Depends(get_db)):
     if not article or article.topic_id is None:
         raise HTTPException(status_code=404, detail="Article or its source topic not found")
     try:
-        new_article = article_pipeline.generate_article(db, article.topic_id)
+        with track_usage() as usage:
+            new_article = article_pipeline.generate_article(db, article.topic_id)
     except GeminiNotConfigured as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     db.delete(article)
     db.commit()
+    ledger.log_event("articles.regenerate", ref_type="article", ref_id=new_article.id, usage=usage)
     return new_article
