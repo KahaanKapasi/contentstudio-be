@@ -10,3 +10,5 @@ storage/videos/*
 .env.*
 !.env.example
 storage/videos/*
+storage/projects/*
+storage/cache/*

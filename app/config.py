@@ -7,6 +7,8 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 STORAGE_DIR = BASE_DIR / "storage"
 UPLOADS_DIR = STORAGE_DIR / "uploads"
 VIDEOS_DIR = STORAGE_DIR / "videos"
+PROJECTS_DIR = STORAGE_DIR / "projects"  # Video Studio engine projects: inputs, stage outputs, final.mp4
+CACHE_DIR = STORAGE_DIR / "cache"
 
 
 class Settings(BaseSettings):
@@ -30,6 +32,12 @@ class Settings(BaseSettings):
 
     gemini_api_key: str = ""
     gemini_text_model: str = "gemini-3.7-flash"
+    # Verified against google-genai 1.75.0: generate_content + response_modalities=["AUDIO"] + SpeechConfig.
+    gemini_tts_model: str = "gemini-3.8-flash-tts"
+    gemini_image_model: str = "gemini-3.1-flash-image-preview"
+
+    pexels_api_key: str = ""
+    pixabay_api_key: str = ""  # optional second stock source
 
     hf_api_key_id: str = ""
     hf_api_key_secret: str = ""

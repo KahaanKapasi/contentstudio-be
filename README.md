@@ -31,6 +31,23 @@ by its own keys (`GET /api/video/providers` reports which are missing). Real cal
 also uploaded so they survive Render's ephemeral disk. Jobs resume after a restart (the next
 `GET /generations/{id}` polls the provider again) and are marked failed after 15 minutes.
 
+## Video Studio engines
+
+`/api/studio/*` (contract: `docs/10_Video_Studio_Engines.md`) runs multi-stage jobs, stored in `video_projects` with
+files under `storage/projects/{id}/`. `GET /api/studio/engines` lists engines/recipes and which env keys are missing.
+
+| Engine | Needs | Notes |
+|---|---|---|
+| `motion` | `GEMINI_API_KEY` | Gemini writes Python against `app/services/studio/motion/studio_motion.py` (validated AST, sandboxed subprocess), frames are piped to FFmpeg. |
+| `faceless` | `GEMINI_API_KEY`, `PEXELS_API_KEY` | Script, search terms, Pexels clips, TTS, captions, FFmpeg compose. |
+| `skill`, `toons`, `shorts`, `explainer3d` | | Listed as "(coming soon)" with their full field specs; `POST /projects` returns 501. |
+
+- FFmpeg: the system `ffmpeg` is used when on `PATH`, otherwise the binary bundled by `imageio-ffmpeg`. Captions are burned in
+  with libass (ASS file) when the build has the `ass`/`subtitles` filter, else with Pillow-rendered PNG overlays.
+- Voices: `edge-tts` (free, default) or Gemini TTS (`GEMINI_TTS_MODEL`). Bundled caption font: Anton (OFL, `app/assets/fonts/`).
+- Rendering is CPU-heavy; Render's free instance is not viable for it, run the backend on a local machine. Finished mp4s are
+  also uploaded to Cloudinary when `CLOUDINARY_URL` is set.
+
 ## Tests
 
 ```bash

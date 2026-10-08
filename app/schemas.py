@@ -288,3 +288,51 @@ class VideoGenerationOut(BaseModel):
     def _as_utc(cls, v: datetime | None):
         # SQLite returns naive UTC; make the ISO string say so, or browsers read it as local time.
         return v.replace(tzinfo=timezone.utc) if v is not None and v.tzinfo is None else v
+
+
+# --- Video Studio engines (docs/10_Video_Studio_Engines.md) ---
+
+
+class StudioScene(BaseModel):
+    index: int
+    text: str
+    visual: str = ""
+    duration_s: float = 0.0
+
+
+class StudioPlanOut(BaseModel):
+    summary: str = ""
+    script: str | None = None
+    scenes: list[StudioScene] | None = None
+    notes: str | None = None
+
+
+class StudioPreviewOut(BaseModel):
+    name: str
+    label: str
+    kind: str  # image, audio, video
+
+
+class StudioProjectOut(BaseModel):
+    id: int
+    engine: str
+    recipe: str | None
+    title: str
+    status: str
+    stage: str | None
+    progress: int
+    error: str | None
+    params: dict[str, Any]
+    plan: StudioPlanOut | None
+    previews: list[StudioPreviewOut]
+    has_file: bool
+    video_url: str | None
+    estimated_cost_usd: float | None
+    created_at: datetime
+    completed_at: datetime | None
+
+    @field_validator("created_at", "completed_at")
+    @classmethod
+    def _as_utc(cls, v: datetime | None):
+        return v.replace(tzinfo=timezone.utc) if v is not None and v.tzinfo is None else v
+

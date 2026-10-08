@@ -34,10 +34,12 @@ class VeoProvider:
 
     def submit(self, params: JobParams) -> JobHandle:
         client = self._client()
+        extra = {"image": types.Image.from_file(location=params.image_path)} if params.image_path else {}
         try:
             operation = client.models.generate_videos(
                 model=params.model,
                 prompt=params.prompt,
+                **extra,
                 config=types.GenerateVideosConfig(
                     aspect_ratio=params.aspect_ratio,
                     duration_seconds=params.duration_seconds,

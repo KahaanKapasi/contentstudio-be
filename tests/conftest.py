@@ -17,6 +17,8 @@ for _name in (
     "HF_API_KEY_ID",
     "HF_API_KEY_SECRET",
     "MUAPI_API_KEY",
+    "PEXELS_API_KEY",
+    "PIXABAY_API_KEY",
     "IG_BUSINESS_ACCOUNT_ID",
     "IG_ACCESS_TOKEN",
     "IG_PAGE_ID",
@@ -49,6 +51,8 @@ _SECRET_FIELDS = (
     "hf_api_key_id",
     "hf_api_key_secret",
     "muapi_api_key",
+    "pexels_api_key",
+    "pixabay_api_key",
     "ig_business_account_id",
     "ig_access_token",
     "ig_page_id",
@@ -76,6 +80,17 @@ def isolated_video_storage(monkeypatch, tmp_path):
 
     monkeypatch.setattr(video_generation, "VIDEOS_DIR", tmp_path / "videos")
     monkeypatch.setattr(video_generation, "POLL_INTERVAL_S", 0)
+
+
+@pytest.fixture(autouse=True)
+def isolated_studio_storage(monkeypatch, tmp_path):
+    from app import config
+    from app.services.studio import runner
+    from app.services.studio.kit import stock
+
+    monkeypatch.setattr(config, "PROJECTS_DIR", tmp_path / "projects")
+    monkeypatch.setattr(runner, "PROJECTS_DIR", tmp_path / "projects")
+    monkeypatch.setattr(stock, "CACHE_DIR", tmp_path / "cache")
 
 
 @pytest.fixture(autouse=True)

@@ -113,6 +113,31 @@ class VideoGeneration(Base):
     completed_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
 
 
+class VideoProject(Base):
+    """One multi-stage Video Studio job (motion / faceless / skill / toons / shorts / explainer3d engines, see
+    docs/10_Video_Studio_Engines.md). params/plan/assets are JSON stored as text; `assets` also
+    carries the runner's resume bookkeeping (completed stages)."""
+
+    __tablename__ = "video_projects"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    engine: Mapped[str] = mapped_column(String, nullable=False)  # motion, faceless, skill, toons, shorts, explainer3d
+    recipe: Mapped[str] = mapped_column(String, nullable=True)
+    title: Mapped[str] = mapped_column(String, nullable=False)
+    params: Mapped[str] = mapped_column(Text, nullable=True)  # JSON
+    plan: Mapped[str] = mapped_column(Text, nullable=True)  # JSON
+    assets: Mapped[str] = mapped_column(Text, nullable=True)  # JSON
+    status: Mapped[str] = mapped_column(String, default="queued")  # queued, planning, awaiting_approval, rendering, succeeded, failed
+    stage: Mapped[str] = mapped_column(String, nullable=True)
+    progress: Mapped[int] = mapped_column(Integer, default=0)
+    error: Mapped[str] = mapped_column(Text, nullable=True)
+    local_path: Mapped[str] = mapped_column(String, nullable=True)  # file name inside storage/projects/{id}/
+    video_url: Mapped[str] = mapped_column(String, nullable=True)  # public hosted URL (Cloudinary), if configured
+    estimated_cost_usd: Mapped[float] = mapped_column(Float, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    completed_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
+
+
 # --- Posts / Carousel Studio ---
 
 

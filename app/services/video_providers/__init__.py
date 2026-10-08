@@ -35,6 +35,7 @@ class JobParams:
     duration_seconds: int
     resolution: str
     idempotency_key: str | None = None
+    image_path: str | None = None  # image-to-video start frame; only Veo honours it
 
 
 @dataclass
