@@ -12,7 +12,8 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models import VideoProject
-from app.schemas import StudioProjectOut
+from app.schemas import InstagramPublishRequest, StudioProjectOut
+from app.services import instagram_publish
 from app.services.studio import registry, runner
 
 router = APIRouter(prefix="/api/studio", tags=["studio"])
@@ -165,6 +166,25 @@ def delete_project(project_id: int, db: Session = Depends(get_db)):
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     return Response(status_code=204)
+
+
+@router.post("/projects/{project_id}/publish-instagram", response_model=StudioProjectOut)
+def publish_instagram(project_id: int, payload: InstagramPublishRequest, background: BackgroundTasks, db: Session = Depends(get_db)):
+    """Posts the finished video as a public Instagram Reel (background task; poll the project for instagram_status)."""
+    project = _get(db, project_id)
+    params = json.loads(project.params or "{}")
+    raw_duration = params.get("duration")
+    warnings = instagram_publish.begin(
+        db, VideoProject, project,
+        ref_type="studio_project",
+        local_file=runner.local_file(project),
+        aspect=params.get("aspect"),
+        duration=float(raw_duration) if isinstance(raw_duration, (int, float)) else None,
+        caption=payload.caption,
+        share_to_feed=payload.share_to_feed,
+        background=background,
+    )
+    return _out(project).model_copy(update={"instagram_warnings": warnings})
 
 
 @router.get("/projects/{project_id}/file")

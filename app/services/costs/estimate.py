@@ -31,6 +31,7 @@ ACTIONS = (
     "posts.render_preview",
     "posts.upload_to_host",
     "posts.publish",
+    "instagram.publish_reel",
     "posts.match_scrape",
     "dashboard.instagram_refresh",
     "dashboard.twitter_refresh",
@@ -365,6 +366,7 @@ _FREE = {
     "posts.upload_to_host": "Cloudinary free tier (25 credits/month); each upload uses a little of it.",
     "posts.publish": "Includes the Cloudinary upload (free tier, 25 credits/month) and the Instagram Graph API publish (no per-post fee, rate limited).",
     "dashboard.instagram_refresh": "Instagram Graph API has no per-call fee (rate limited).",
+    "instagram.publish_reel": "Free. Uses a little of the Cloudinary free tier (25 credits/month) if the video must be uploaded first; Instagram has no per-post fee (100 API posts per 24 h).",
 }
 
 _PAID = {

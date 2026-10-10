@@ -58,16 +58,32 @@ def instagram_refresh(db: Session = Depends(get_db)):
     except InstagramNotConfigured as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
+    # Reach + engagement come from a separate insights call; if it fails we still store followers.
+    reach = interactions = engagement = None
+    warning = None
+    try:
+        insights = instagram_client.get_account_insights()
+        reach, interactions = insights.get("reach"), insights.get("total_interactions")
+        if reach and interactions is not None:
+            # Fraction (0.30 = 30%): the frontend multiplies by 100. total_interactions / reach over 30 days.
+            engagement = round(interactions / reach, 4)
+        else:
+            warning = "Instagram returned no reach/interaction data for the last 30 days."
+    except Exception as exc:
+        # Only our own sanitized Graph errors are echoed; raw httpx errors can embed the request URL (token).
+        detail = str(exc) if isinstance(exc, instagram_client.InstagramPublishError) else exc.__class__.__name__
+        warning = f"Reach and engagement unavailable: {detail}"
+
     snapshot = InstagramMetricSnapshot(
         followers=data.get("followers_count"),
-        reach_30d=None,  # requires Insights API call with a time window — follow-up
-        engagement_rate=None,
+        reach_30d=reach,
+        engagement_rate=engagement,
         top_post_ids=json.dumps([]),
     )
     db.add(snapshot)
     db.commit()
     db.refresh(snapshot)
-    return snapshot
+    return InstagramMetricOut.model_validate(snapshot).model_copy(update={"warning": warning})
 
 
 @router.get("/twitter/metrics", response_model=list[TwitterMetricOut])

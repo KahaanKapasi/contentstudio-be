@@ -30,6 +30,10 @@ class ModelSpec:
     field_map: dict = field(default_factory=dict)  # our field name -> provider's name, e.g. resolution -> quality
     # Resolution values that only work at a specific duration (Veo: 1080p/4k need 8s).
     resolution_durations: dict[str, tuple[int, ...]] = field(default_factory=dict)
+    # Muapi image-to-video: the request field that carries the start frame ("image_url", or "images_list" = list of URLs).
+    # `image_to_video` models need an image; they are kept out of `MODELS` (the plain text-to-video picker).
+    image_to_video: bool = False
+    image_field: str = "image_url"
 
 
 PROVIDER_LABELS = {"veo": "Google Veo", "higgsfield": "Higgsfield", "muapi": "Muapi"}
@@ -162,13 +166,78 @@ MUAPI_MODELS = {
     )
 }
 
+_MU_I2V = "Image-to-video: the shot still becomes the start frame, so the character keeps its look. Fields verified against api.muapi.ai/openapi.json (2026-10-09); billed in Muapi credits, price not published."
+_I2V = dict(image_to_video=True)
+
+# Muapi image-to-video endpoints (exact ids and request fields from https://api.muapi.ai/openapi.json). Aspect
+# ratio is taken from the start image on most of them, so it is not sent unless the schema has the field.
+MUAPI_I2V_MODELS = {
+    m.id: m
+    for m in (
+        ModelSpec(
+            "kling-v3.0-standard-image-to-video", "muapi", "Kling 3.0 Standard (image-to-video)",
+            ("16:9", "9:16", "1:1"), (3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15), ("720p",), None,
+            f"{_MU_I2V} Native audio. Aspect ratio follows the image.",
+            path="kling-v3.0-standard-image-to-video", body_fields=("duration",), extra_body={"generate_audio": True}, **_I2V,
+        ),
+        ModelSpec(
+            "kling-v3.0-pro-image-to-video", "muapi", "Kling 3.0 Pro (image-to-video)",
+            ("16:9", "9:16", "1:1"), (3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15), ("1080p",), None,
+            f"{_MU_I2V} Native audio. Aspect ratio follows the image.",
+            path="kling-v3.0-pro-image-to-video", body_fields=("duration",), extra_body={"generate_audio": True}, **_I2V,
+        ),
+        ModelSpec(
+            "kling-v2.6-pro-i2v", "muapi", "Kling 2.6 Pro (image-to-video)",
+            ("16:9", "9:16", "1:1"), (5, 10), ("1080p",), None,
+            f"{_MU_I2V} Aspect ratio follows the image.",
+            path="kling-v2.6-pro-i2v", body_fields=("duration",), extra_body={"sound": True}, **_I2V,
+        ),
+        ModelSpec(
+            "seedance-v2.0-i2v", "muapi", "Seedance 2.0 (image-to-video)",
+            ("16:9", "9:16", "4:3", "3:4"), (5, 10, 15), ("480p", "720p"), None,
+            f"{_MU_I2V} The image goes in `images_list` and is referenced as @image1 in the prompt.",
+            path="seedance-v2.0-i2v", body_fields=("aspect_ratio", "duration", "resolution"), image_field="images_list", **_I2V,
+        ),
+        ModelSpec(
+            "wan2.6-image-to-video", "muapi", "Wan 2.6 (image-to-video)",
+            ("16:9", "9:16", "1:1"), (5, 10, 15), ("720p", "1080p"), None,
+            f"{_MU_I2V} Aspect ratio follows the image.",
+            path="wan2.6-image-to-video", body_fields=("duration", "resolution"), **_I2V,
+        ),
+        ModelSpec(
+            "wan2.5-image-to-video", "muapi", "Wan 2.5 (image-to-video)",
+            ("16:9", "9:16", "1:1"), (5, 10), ("480p", "720p", "1080p"), None,
+            f"{_MU_I2V} Aspect ratio follows the image.",
+            path="wan2.5-image-to-video", body_fields=("duration", "resolution"), **_I2V,
+        ),
+        ModelSpec(
+            "veo3.1-lite-image-to-video", "muapi", "Veo 3.1 Lite (image-to-video)",
+            ("16:9", "9:16"), (8,), ("720p", "1080p", "4k"), None, _MU_I2V,
+            path="veo3.1-lite-image-to-video", body_fields=("aspect_ratio", "duration", "resolution"), **_I2V,
+        ),
+        ModelSpec(
+            "veo3.1-image-to-video", "muapi", "Veo 3.1 (image-to-video)",
+            ("16:9", "9:16"), (8,), ("720p", "1080p", "4k"), None, _MU_I2V,
+            path="veo3.1-image-to-video", body_fields=("aspect_ratio", "duration", "resolution"), **_I2V,
+        ),
+    )
+}
+DEFAULT_I2V_MODEL = {"muapi": "kling-v3.0-standard-image-to-video"}
+
 MODELS: dict[str, dict[str, ModelSpec]] = {"veo": VEO_MODELS, "higgsfield": HIGGSFIELD_MODELS, "muapi": MUAPI_MODELS}
 
 
-def build_body(spec: ModelSpec, prompt: str, aspect_ratio: str, duration_seconds: int, resolution: str) -> dict:
+def build_body(spec: ModelSpec, prompt: str, aspect_ratio: str, duration_seconds: int, resolution: str, image_url: str | None = None) -> dict:
     """Request JSON for the REST-style providers, driven entirely by the spec's data."""
     values = {"aspect_ratio": aspect_ratio, "duration": duration_seconds, "resolution": resolution}
     body = {"prompt": prompt, **spec.extra_body}
+    if image_url and spec.image_to_video:
+        if spec.image_field == "images_list":
+            body["images_list"] = [image_url]
+            if "@image1" not in prompt:  # Seedance addresses its reference images from the prompt
+                body["prompt"] = f"@image1 {prompt}"
+        else:
+            body[spec.image_field] = image_url
     for name in spec.body_fields:
         body[spec.field_map.get(name, name)] = values[name]
     return body
@@ -177,7 +246,7 @@ def build_body(spec: ModelSpec, prompt: str, aspect_ratio: str, duration_seconds
 def get_model(provider: str, model: str) -> ModelSpec:
     if provider not in MODELS:
         raise CatalogError(f"Unknown provider '{provider}'. Choose one of: {', '.join(MODELS)}.")
-    spec = MODELS[provider].get(model)
+    spec = MODELS[provider].get(model) or (MUAPI_I2V_MODELS.get(model) if provider == "muapi" else None)
     if spec is None:
         raise CatalogError(f"Model '{model}' is not available for {PROVIDER_LABELS[provider]}. Choose one of: {', '.join(MODELS[provider])}.")
     return spec
@@ -198,8 +267,33 @@ def validate(provider: str, model: str, aspect_ratio: str, duration_seconds: int
 
 
 def estimate_cost(provider: str, model: str, resolution: str, duration_seconds: int) -> float | None:
-    spec = MODELS.get(provider, {}).get(model)
+    spec = MODELS.get(provider, {}).get(model) or (MUAPI_I2V_MODELS.get(model) if provider == "muapi" else None)
     if spec is None or not spec.price_per_second_usd:
         return None
     price = spec.price_per_second_usd.get(resolution)
     return None if price is None else round(price * duration_seconds, 4)
+
+
+def image_variant(provider: str, model: str) -> str | None:
+    """The image-to-video sibling of a text-to-video model (same provider), or None when the model already
+    takes an image or the provider has no verified image-to-video endpoint (Veo takes it natively)."""
+    if provider != "muapi":
+        return None
+    if model in MUAPI_I2V_MODELS:
+        return model
+    for old, new in (("text-to-video", "image-to-video"), ("-t2v", "-i2v")):
+        if old in model and model.replace(old, new) in MUAPI_I2V_MODELS:
+            return model.replace(old, new)
+    return None
+
+
+def supports_image(provider: str, model: str) -> bool:
+    """True when `model` can start from an image (Veo always; Muapi only its image-to-video endpoints)."""
+    return provider == "veo" or (provider == "muapi" and model in MUAPI_I2V_MODELS)
+
+
+def fit(spec: ModelSpec, duration_seconds: int, resolution: str) -> tuple[int, str]:
+    """Nearest (duration, resolution) `spec` offers: the smallest duration that covers the request, else the longest."""
+    durs = sorted(spec.durations)
+    dur = duration_seconds if duration_seconds in durs else next((d for d in durs if d >= duration_seconds), durs[-1])
+    return dur, resolution if resolution in spec.resolutions else spec.resolutions[-1]

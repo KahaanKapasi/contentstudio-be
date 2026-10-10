@@ -85,7 +85,8 @@ def _service(ev: CostEvent) -> str:
 def _usd(ev: CostEvent) -> tuple[float, bool]:
     """(usd, is_estimate): actual where known, else the midpoint of the estimate range."""
     if ev.actual_usd is not None:
-        return ev.actual_usd, False
+        # Studio projects can include price guesses (unpriced Muapi/Higgsfield clips); they say so in details.
+        return ev.actual_usd, bool(ev.details and '"has_estimate": true' in ev.details)
     lo, hi = ev.estimated_low_usd or 0.0, ev.estimated_high_usd or 0.0
     return (lo + hi) / 2, True
 

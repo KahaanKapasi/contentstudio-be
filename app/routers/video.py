@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models import Script, VideoGeneration, VideoTopic
 from app.schemas import (
+    InstagramPublishRequest,
     PromptImproveOut,
     PromptImproveRequest,
     ProviderInfoOut,
@@ -16,7 +17,7 @@ from app.schemas import (
     VideoTitlesGenerateRequest,
     VideoTopicOut,
 )
-from app.services import video_generation, video_pipeline
+from app.services import instagram_publish, video_generation, video_pipeline
 from app.services.costs import ledger
 from app.services.gemini_client import GeminiNotConfigured, track_usage
 from app.services.video_providers import ProviderNotConfigured, catalog
@@ -188,6 +189,25 @@ def retry_generation(generation_id: int, background: BackgroundTasks, db: Sessio
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     background.add_task(video_generation.run_generation, new.id)
     return _out(new)
+
+
+@router.post("/generations/{generation_id}/publish-instagram", response_model=VideoGenerationOut)
+def publish_generation_instagram(
+    generation_id: int, payload: InstagramPublishRequest, background: BackgroundTasks, db: Session = Depends(get_db)
+):
+    """Posts the finished clip as a public Instagram Reel (background task; poll the generation for instagram_status)."""
+    gen = _get_generation(db, generation_id)
+    warnings = instagram_publish.begin(
+        db, VideoGeneration, gen,
+        ref_type="video_generation",
+        local_file=video_generation.local_file(gen),
+        aspect=gen.aspect_ratio,
+        duration=gen.duration_seconds,
+        caption=payload.caption,
+        share_to_feed=payload.share_to_feed,
+        background=background,
+    )
+    return _out(gen).model_copy(update={"instagram_warnings": warnings})
 
 
 @router.get("/generations/{generation_id}/file")

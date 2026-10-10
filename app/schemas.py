@@ -165,6 +165,7 @@ class InstagramMetricOut(BaseModel):
     reach_30d: int | None
     engagement_rate: float | None
     top_post_ids: list[int] = []
+    warning: str | None = None  # set on refresh when insights (reach/engagement) couldn't be fetched
 
     @field_validator("top_post_ids", mode="before")
     @classmethod
@@ -275,6 +276,11 @@ class VideoGenerationOut(BaseModel):
     video_url: str | None
     research_sources: list[SourceLink] = []
     estimated_cost_usd: float | None
+    instagram_media_id: str | None = None
+    instagram_permalink: str | None = None
+    instagram_status: str | None = None  # publishing, published, failed
+    instagram_error: str | None = None
+    instagram_warnings: list[str] = []  # soft warnings, only filled on the publish response
     created_at: datetime
     completed_at: datetime | None
 
@@ -330,6 +336,11 @@ class StudioProjectOut(BaseModel):
     estimated_cost_usd: float | None
     estimated_cost_low_usd: float | None = None
     estimated_cost_high_usd: float | None = None
+    instagram_media_id: str | None = None
+    instagram_permalink: str | None = None
+    instagram_status: str | None = None  # publishing, published, failed
+    instagram_error: str | None = None
+    instagram_warnings: list[str] = []  # soft warnings, only filled on the publish response
     created_at: datetime
     completed_at: datetime | None
 
@@ -338,3 +349,8 @@ class StudioProjectOut(BaseModel):
     def _as_utc(cls, v: datetime | None):
         return v.replace(tzinfo=timezone.utc) if v is not None and v.tzinfo is None else v
 
+
+
+class InstagramPublishRequest(BaseModel):
+    caption: str = ""
+    share_to_feed: bool = True

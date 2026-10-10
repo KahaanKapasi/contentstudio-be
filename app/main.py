@@ -8,6 +8,7 @@ from app.database import Base, SessionLocal, engine
 from app.models import Template
 from app import auth
 from app.auth import require_access
+from app.migrations import run_migrations
 from app.routers import articles, costs, dashboard, discovery, posts, studio, video
 from app.services import ig_token
 
@@ -69,6 +70,7 @@ def seed_templates():
 @app.on_event("startup")
 def on_startup():
     Base.metadata.create_all(bind=engine)
+    run_migrations(engine)
     seed_templates()
     # Off the request path: a due refresh is one HTTP call and must not delay cold start.
     threading.Thread(target=ig_token.refresh_if_due, daemon=True).start()

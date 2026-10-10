@@ -12,6 +12,7 @@ import time
 from PIL import Image, ImageOps
 
 from app.services import media_hosting
+from app.services.costs import prices
 from app.services.studio import registry
 from app.services.studio.engines import _scenefilm as sf
 from app.services.studio.engines import _scenerender as sr
@@ -172,6 +173,7 @@ def _generate(ctx) -> None:
             result = PollResult("running")
         if result.state == "succeeded":
             provider.download(result.output, out)
+            _record_clip_usage(ctx, p["model"], d)
             return
         if result.state == "failed":
             d.pop("request_id", None)
@@ -182,6 +184,15 @@ def _generate(ctx) -> None:
         ctx.remaining()
         ctx.progress(min(waited / 240, 0.95))
         time.sleep(POLL_INTERVAL_S)
+
+
+def _record_clip_usage(ctx, model: str, d: dict) -> None:
+    try:  # v3.0 motion control has a published per-second price; v2.6 does not (recorded as an estimate)
+        price = prices.usd("muapi.kling_v3_std_motion_control") if model.startswith("kling-v3") else None
+        secs = float(d.get("duration") or 0)
+        ctx.usage.add_clip("muapi", model, "default", secs, None if price is None else price * secs)
+    except Exception:
+        pass
 
 
 def _finish_dance(ctx) -> None:

@@ -19,6 +19,7 @@ from app.services.studio.kit import ffmpeg
 SAMPLE_RATE = 24000
 GAP_S = 0.2
 GEMINI_RETRIES = 3
+TTS_TOKENS_PER_SECOND = 25  # audio output tokens per second of speech (used only when usage_metadata is absent)
 
 EDGE_DEFAULT_VOICES = {
     "en": "en-US-AndrewNeural", "en-US": "en-US-AndrewNeural", "en-GB": "en-GB-RyanNeural",
@@ -193,7 +194,9 @@ def _gemini_sentence(text: str, voice: str) -> bytes:
         try:
             response = client.models.generate_content(model=settings.gemini_tts_model, contents=text, config=config)
             part = response.candidates[0].content.parts[0].inline_data
-            return _gemini_audio_to_pcm(part.data)
+            pcm = _gemini_audio_to_pcm(part.data)
+            gemini_client.record_usage(response, kind="tts", fallback=int(len(pcm) / 2 / SAMPLE_RATE * TTS_TOKENS_PER_SECOND))
+            return pcm
         except (genai_errors.APIError, IndexError, AttributeError, TypeError) as exc:
             retryable = getattr(exc, "code", None) in (429, 500, 503) or not isinstance(exc, genai_errors.APIError)
             if attempt == GEMINI_RETRIES - 1 or not retryable:

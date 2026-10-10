@@ -21,7 +21,7 @@ from app.config import PROJECTS_DIR, settings
 from app.database import SessionLocal
 from app.models import VideoProject, utcnow
 from app.services import media_hosting
-from app.services.costs import ledger
+from app.services.costs import ledger, usage as project_usage
 from app.services.gemini_client import GeminiNotConfigured
 from app.services.studio import registry
 from app.services.studio.kit.ffmpeg import FFmpegError
@@ -65,6 +65,7 @@ class Ctx:
         self.data: dict = assets.get("data", {})
         self.files: dict[str, dict] = assets.get("files", {})
         self.inputs: dict[str, list[Path]] = {k: [self.dir / p for p in v] for k, v in assets.get("inputs", {}).items()}
+        self.usage = project_usage.ProjectUsage(assets.get("usage"))  # paid usage so far; persisted, survives resume
         self.deadline = deadline
         self._on_progress = on_progress
 
@@ -113,7 +114,7 @@ def _save(db: Session, project: VideoProject, **fields) -> None:
 
 def _persist(db: Session, project: VideoProject, ctx: Ctx, done: list[str], **fields) -> None:
     assets = _assets(project)
-    assets.update({"done": done, "data": ctx.data, "files": ctx.files, "touched": time.time()})
+    assets.update({"done": done, "data": ctx.data, "files": ctx.files, "usage": ctx.usage.to_dict(), "touched": time.time()})
     _save(db, project, assets=json.dumps(assets), plan=json.dumps(ctx.plan), **fields)
 
 
@@ -258,12 +259,14 @@ def _execute(db: Session, project_id: int) -> None:
         if stage.phase == "render" and not approved:
             cost = engine.estimate_cost(recipe, params, ctx.plan)
             _persist(db, project, ctx, done, status="awaiting_approval", stage="Awaiting approval", progress=int(100 * finished_weight / total), estimated_cost_usd=cost)
+            _log_usage(db, project, ctx, "awaiting_approval")
             return
         state.update(stage=stage.name, weight=stage.weight, last=0.0)
         _persist(db, project, ctx, done, status="planning" if stage.phase == "plan" else "rendering", stage=stage.name, progress=int(100 * finished_weight / total))
         try:
             ctx.remaining()
-            stage.fn(ctx)
+            with project_usage.use(ctx.usage):
+                stage.fn(ctx)
         except genai_errors.APIError as exc:
             return _fail(db, project, ctx, done, f"Gemini request failed ({getattr(exc, 'code', 'error')}) during '{stage.name}'. Retry to resume.")
         except _USER_ERRORS as exc:
@@ -285,15 +288,39 @@ def _execute(db: Session, project_id: int) -> None:
         except Exception:  # hosting is a bonus; the local file is safe
             log.warning("cloudinary upload failed for studio project %s", project.id, exc_info=True)
     _persist(db, project, ctx, done, status="succeeded", stage="Done", progress=100, local_path=FINAL_NAME, video_url=video_url, error=None, completed_at=utcnow())
-    ledger.log_event(
-        "studio.project",
-        {"engine": project.engine, "recipe": project.recipe, "params": params, "estimated_usd": project.estimated_cost_usd},
-        ref_type="video_project", ref_id=project.id,
-        details={"engine": project.engine, "recipe": project.recipe},
-    )
+    _log_usage(db, project, ctx, "succeeded", force=True)
+
+
+def _log_usage(db: Session, project: VideoProject, ctx: Ctx, status: str, *, force: bool = False) -> None:
+    """Log what this project has actually spent since the last event as one `studio.project` CostEvent.
+
+    The accumulator is cumulative across stages and resumes, so only the delta over `assets.usage_logged_usd` is
+    booked (a failed run logs what it spent, the retry logs the rest). A success always logs, even at $0.
+    Failure-safe: nothing here may change the project's outcome."""
+    try:
+        total, breakdown = ctx.usage.cost()
+        assets = _assets(project)
+        delta = round(max(total - float(assets.get("usage_logged_usd", 0.0)), 0.0), 6)
+        if delta <= 0 and not force:
+            return
+        params = json.loads(project.params or "{}")
+        ledger.log_event(
+            "studio.project",
+            {"engine": project.engine, "recipe": project.recipe, "params": params, "estimated_usd": project.estimated_cost_usd},
+            ref_type="video_project", ref_id=project.id, actual_usd=delta,
+            details={
+                "engine": project.engine, "recipe": project.recipe, "status": status,
+                "delta_usd": delta, "total_usd": total, "has_estimate": breakdown["has_estimate"], "usage": breakdown,
+            },
+        )
+        assets["usage_logged_usd"] = total
+        _save(db, project, assets=json.dumps(assets))
+    except Exception:
+        log.warning("could not log usage for studio project %s", project.id, exc_info=True)
 
 
 def _fail(db: Session, project: VideoProject, ctx: Ctx, done: list[str], message: str) -> None:
     db.rollback()
     _persist(db, project, ctx, done, status="failed", error=clean(message), completed_at=utcnow())
+    _log_usage(db, project, ctx, "failed")
 

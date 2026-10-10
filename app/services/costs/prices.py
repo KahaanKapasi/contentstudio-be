@@ -59,6 +59,7 @@ PRICES: tuple[Price, ...] = (
     _p("gemini.image.out", "gemini", "image", 0.067, _G, note="1K image."),
     _p("gemini.image.out.2k", "gemini", "image", 0.101, _G, note="2K image."),
     _p("gemini.image.out.512", "gemini", "image", 0.045, _G, note="512px image."),
+    _p("gemini.image.out.tokens", "gemini", "1M tokens", 60.0, _G, note="Image output tokens; a 1K image is ~1,120 tokens."),
     _p("gemini.image.in", "gemini", "1M tokens", 0.50, _G),
     # --- Gemini TTS (25 audio tokens per second of speech) ---
     _p("gemini.tts.3_8.in", "gemini", "1M tokens", 0.50, _G),

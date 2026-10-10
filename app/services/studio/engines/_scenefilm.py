@@ -48,7 +48,7 @@ RESEARCH = FieldSpec("research", "Research the topic on the web first", "toggle"
 PARODY_LABEL = FieldSpec("parody_label", "Burn in an 'AI parody' label", "toggle", default=True)
 CLIP_PROVIDER = FieldSpec(
     "clip_provider", "Clip provider (AI motion)", "select", default="veo",
-    options=[{"value": "veo", "label": "Google Veo (uses the still as the first frame)"}, {"value": "muapi", "label": "Muapi (text-to-video, looser likeness)"}],
+    options=[{"value": "veo", "label": "Google Veo (uses the still as the first frame)"}, {"value": "muapi", "label": "Muapi (Kling 3.0 image-to-video from the shot still)"}],
 )
 SUBTITLES = FieldSpec("subtitles", "Burn-in captions", "toggle", default=True)
 LANGUAGE = FieldSpec("language", "Language", "select", default="en", options=[{"value": c, "label": n} for c, n in _shared.LANGUAGES])
@@ -347,7 +347,7 @@ def assign_photos(chars: list[dict], photos: list[Path]) -> dict[str, list[Path]
 
 # --- ai clip choices ---
 
-AI_DEFAULTS = {"veo": ("veo-3.1-lite-generate-preview", "720p"), "muapi": ("kling-v3.0-standard-text-to-video", "720p")}
+AI_DEFAULTS = {"veo": ("veo-3.1-lite-generate-preview", "720p"), "muapi": (catalog.DEFAULT_I2V_MODEL["muapi"], "720p")}  # image-to-video: the shot still is the start frame
 
 
 def is_ai(params: dict) -> bool:
@@ -524,7 +524,7 @@ def _write_plan(ctx, fl: Flavour, durations: list[float], final: bool = False) -
     elif is_ai(p):
         notes.append("Clip audio is dropped; the character voices are added in post.")
     if is_ai(p) and p.get("clip_provider") == "muapi":
-        notes.append("Muapi clips are text-to-video, so characters will look less like the reference sheets than with Veo.")
+        notes.append("Muapi clips are image-to-video: each shot still is uploaded to Muapi as the start frame, so characters keep their look from the reference sheets.")
     if p.get("parody_label"):
         notes.append("A small 'AI PARODY' tag is burned into the corner of the video.")
     if fl.kind == "lyrics":

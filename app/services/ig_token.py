@@ -15,6 +15,7 @@ from datetime import datetime, timedelta, timezone
 from urllib.parse import urlparse
 
 import httpx
+from sqlalchemy.exc import IntegrityError
 
 from app.config import settings
 from app.database import SessionLocal
@@ -45,7 +46,14 @@ def _save(db, state: dict) -> None:
         row.value = json.dumps(state)
     else:
         db.add(AppSecret(key=KEY, value=json.dumps(state)))
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        # Startup refresh thread and a request can both seed the row at once; the loser updates it.
+        db.rollback()
+        row = db.get(AppSecret, KEY)
+        row.value = json.dumps(state)
+        db.commit()
 
 
 def _sync(db) -> dict | None:

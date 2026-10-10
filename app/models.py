@@ -109,6 +109,10 @@ class VideoGeneration(Base):
     provider_status_url: Mapped[str] = mapped_column(String, nullable=True)
     local_path: Mapped[str] = mapped_column(String, nullable=True)  # file name inside storage/videos/, e.g. 12.mp4
     video_url: Mapped[str] = mapped_column(String, nullable=True)  # public hosted URL (Cloudinary), if configured
+    instagram_media_id: Mapped[str] = mapped_column(String, nullable=True)
+    instagram_permalink: Mapped[str] = mapped_column(String, nullable=True)
+    instagram_status: Mapped[str] = mapped_column(String, nullable=True)  # publishing, published, failed
+    instagram_error: Mapped[str] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
     completed_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
 
@@ -133,6 +137,10 @@ class VideoProject(Base):
     error: Mapped[str] = mapped_column(Text, nullable=True)
     local_path: Mapped[str] = mapped_column(String, nullable=True)  # file name inside storage/projects/{id}/
     video_url: Mapped[str] = mapped_column(String, nullable=True)  # public hosted URL (Cloudinary), if configured
+    instagram_media_id: Mapped[str] = mapped_column(String, nullable=True)
+    instagram_permalink: Mapped[str] = mapped_column(String, nullable=True)
+    instagram_status: Mapped[str] = mapped_column(String, nullable=True)  # publishing, published, failed
+    instagram_error: Mapped[str] = mapped_column(Text, nullable=True)
     estimated_cost_usd: Mapped[float] = mapped_column(Float, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
     completed_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)

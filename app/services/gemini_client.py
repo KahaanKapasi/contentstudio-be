@@ -25,22 +25,30 @@ def _count(obj, name: str) -> int:
     return int(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else 0
 
 
-def record_usage(response, kind: str = "text", grounded: bool = False) -> None:
-    """Remember a response's usage_metadata for the active tracker. Never raises."""
+def record_usage(response, kind: str = "text", grounded: bool = False, fallback: int = 0) -> None:
+    """Remember a response's usage_metadata for the active trackers. Never raises.
+
+    `kind` is "text" (also feeds the `track_usage` sink used by the routers), "image" or "tts"; the latter two only
+    feed the active Studio project accumulator. `fallback` is used when usage_metadata is missing: images actually
+    returned (priced per image) for "image", estimated audio output tokens for "tts"."""
     try:
-        sink = _usage.get()
+        from app.services.costs import usage as project_usage
+
         meta = getattr(response, "usage_metadata", None)
-        if sink is None or meta is None:
-            return
-        sink.append(
-            {
-                "kind": kind,
-                "grounded": grounded,
-                "prompt_tokens": _count(meta, "prompt_token_count") + _count(meta, "tool_use_prompt_token_count"),
-                # thinking tokens are billed at the output rate
-                "output_tokens": _count(meta, "candidates_token_count") + _count(meta, "thoughts_token_count"),
-            }
-        )
+        prompt = _count(meta, "prompt_token_count") + _count(meta, "tool_use_prompt_token_count")
+        output, thinking = _count(meta, "candidates_token_count"), _count(meta, "thoughts_token_count")
+        project = project_usage.current()
+        if project is not None:
+            if kind == "image":
+                project.add_image(prompt, output, fallback)
+            elif kind == "tts":
+                project.add_tts(prompt, output, fallback)
+            else:
+                project.add_text(prompt, output, thinking, grounded)
+        sink = _usage.get()
+        if kind == "text" and sink is not None and meta is not None:
+            # thinking tokens are billed at the output rate
+            sink.append({"kind": kind, "grounded": grounded, "prompt_tokens": prompt, "output_tokens": output + thinking})
     except Exception:
         pass
 

@@ -79,6 +79,7 @@ def gemini_vision_json(prompt: str, images: list[Path]) -> dict:
     response = gemini_client.get_client().models.generate_content(
         model=settings.gemini_text_model, contents=parts, config={"response_mime_type": "application/json"}
     )
+    gemini_client.record_usage(response)
     data = parse_json(response.text or "")
     return data if isinstance(data, dict) else {"items": data}
 

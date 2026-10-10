@@ -39,7 +39,9 @@ def generate_image(prompt: str, dest: Path, *, aspect: str = "9:16", references:
             if part.inline_data and part.inline_data.data:
                 dest.parent.mkdir(parents=True, exist_ok=True)
                 Image.open(io.BytesIO(part.inline_data.data)).convert("RGB").save(dest, format="PNG")
+                gemini_client.record_usage(response, kind="image", fallback=1)
                 return dest
+    gemini_client.record_usage(response, kind="image", fallback=0)
     raise ImageGenError("Gemini returned no image (the prompt may have been blocked). Try rewording it.")
 
 
