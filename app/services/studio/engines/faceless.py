@@ -30,7 +30,7 @@ class FacelessEngine(Engine):
     label = "Stock-footage shorts"
     description = "Script, voice and captions over free stock footage (Pexels), composed automatically. Based on MoneyPrinterTurbo."
     recipes = [
-        RecipeSpec("faceless", "Faceless short", "A narrated vertical short built from stock footage.", FIELDS, paid=False, keys=("GEMINI_API_KEY", "PEXELS_API_KEY"))
+        RecipeSpec("faceless", "Faceless short", "A narrated vertical short built from stock footage.", FIELDS, paid=False, keys=("GEMINI_API_KEY", "PEXELS_API_KEY|PIXABAY_API_KEY"))
     ]
 
     def title(self, recipe, params):

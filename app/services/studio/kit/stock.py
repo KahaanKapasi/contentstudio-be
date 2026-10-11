@@ -40,7 +40,8 @@ class StockClip:
 
 
 def missing_keys() -> list[str]:
-    return [] if settings.pexels_api_key else ["PEXELS_API_KEY"]
+    # Either source is enough: Pexels first, Pixabay as the alternative (Pexels has paused new key signups).
+    return [] if (settings.pexels_api_key or settings.pixabay_api_key) else ["PEXELS_API_KEY or PIXABAY_API_KEY"]
 
 
 def pick_rendition(files: list[dict], target: tuple[int, int]) -> dict | None:
@@ -62,7 +63,7 @@ def search(query: str, aspect: str, min_duration: float, *, per_page: int = 15) 
     if not clips and settings.pixabay_api_key:
         clips = _search_pixabay(query, aspect, min_duration, per_page)
     if not clips and not settings.pexels_api_key and not settings.pixabay_api_key:
-        raise StockError("PEXELS_API_KEY is not set in .env")
+        raise StockError("Set PEXELS_API_KEY or PIXABAY_API_KEY in .env")
     return clips
 
 

@@ -30,7 +30,7 @@ def test_engines_listing_shape_and_keys(client):
     assert motion["configured"] is False and motion["missing_keys"] == ["GEMINI_API_KEY"]
     assert {f["name"] for f in motion["fields"]} >= {"brief", "data", "aspect", "duration", "narration", "tts_provider", "voice"}
     faceless = engines["faceless"]["recipes"][0]
-    assert faceless["missing_keys"] == ["GEMINI_API_KEY", "PEXELS_API_KEY"]
+    assert faceless["missing_keys"] == ["GEMINI_API_KEY", "PEXELS_API_KEY or PIXABAY_API_KEY"]
     assert {f["name"] for f in faceless["fields"]} >= {"subject", "script", "language", "aspect", "clip_duration", "bgm", "subtitles", "paragraphs"}
     assert next(f for f in faceless["fields"] if f["name"] == "bgm")["type"] == "audio"
 

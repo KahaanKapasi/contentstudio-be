@@ -395,3 +395,15 @@ def test_generate_clip_failure_and_missing_keys(tmp_path, monkeypatch):
     provider.keys = ["MUAPI_API_KEY"]
     with pytest.raises(ProviderNotConfigured):
         clips.generate_clip("p", tmp_path / "c.mp4", **kw)
+
+
+def test_stock_missing_keys_accepts_either_source(monkeypatch):
+    from app.config import settings
+    from app.services.studio import registry
+
+    monkeypatch.setattr(settings, "pexels_api_key", "")
+    monkeypatch.setattr(settings, "pixabay_api_key", "")
+    assert registry.missing_env(("PEXELS_API_KEY|PIXABAY_API_KEY",)) == ["PEXELS_API_KEY or PIXABAY_API_KEY"]
+    monkeypatch.setattr(settings, "pixabay_api_key", "pk")
+    assert registry.missing_env(("PEXELS_API_KEY|PIXABAY_API_KEY",)) == []
+    assert stock.missing_keys() == []

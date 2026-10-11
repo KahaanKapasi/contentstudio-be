@@ -65,7 +65,12 @@ class Stage:
 
 
 def missing_env(keys: tuple[str, ...] | list[str]) -> list[str]:
-    return [k for k in keys if not getattr(settings, k.lower(), "")]
+    """A key written "A|B" means either env var is enough (reported as "A or B" when neither is set)."""
+    return [
+        " or ".join(alts)
+        for alts in (k.split("|") for k in keys)
+        if not any(getattr(settings, a.lower(), "") for a in alts)
+    ]
 
 
 class Engine:
