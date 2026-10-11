@@ -74,6 +74,8 @@ async def render_preview(
     image_bytes = await image.read()
     try:
         rendered = image_processing.render_template(template_name, image_bytes, text, aspect_ratio)
+    except image_processing.CutoutUnavailable as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return Response(content=rendered, media_type="image/jpeg")
@@ -90,6 +92,8 @@ async def render_background(
     image_bytes = await image.read()
     try:
         rendered = image_processing.render_background(template_name, image_bytes, aspect_ratio)
+    except image_processing.CutoutUnavailable as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return Response(content=rendered, media_type="image/jpeg")
@@ -102,6 +106,8 @@ async def cutout(image: UploadFile = File(...)):
     image_bytes = await image.read()
     try:
         png = await run_in_threadpool(image_processing.cutout_png, image_bytes)
+    except image_processing.CutoutUnavailable as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
     except Exception as exc:  # unreadable image / missing model
         raise HTTPException(status_code=400, detail=f"Could not cut out subject: {exc}") from exc
     return Response(content=png, media_type="image/png")

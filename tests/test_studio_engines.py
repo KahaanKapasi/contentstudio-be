@@ -146,3 +146,15 @@ def test_faceless_download_skips_unreadable_clips(client, db, keys, edge, stock_
 
 def test_clean_script_strips_markup():
     assert faceless.clean_script("# Title\n* **Bold** point (visual: crowd)\n1. second [pause]") == "Bold point\nsecond"
+
+
+def test_motion_memory_cap_scales_down_on_small_containers(monkeypatch):
+    from app.services import image_processing
+    from app.services.studio.motion import render
+
+    monkeypatch.setattr(image_processing, "_container_memory_limit", lambda: None)
+    assert render.max_rss_mb() == render.MAX_RSS_MB
+    monkeypatch.setattr(image_processing, "_container_memory_limit", lambda: 512 << 20)
+    assert 200 < render.max_rss_mb() < 260
+    monkeypatch.setattr(image_processing, "_container_memory_limit", lambda: 32 << 30)
+    assert render.max_rss_mb() == render.MAX_RSS_MB

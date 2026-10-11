@@ -11,6 +11,7 @@ _TEST_DB = _TMP_DIR / "test.db"
 atexit.register(shutil.rmtree, _TMP_DIR, ignore_errors=True)
 
 os.environ["DATABASE_URL"] = f"sqlite:///{_TEST_DB}"
+os.environ["WARM_CUTOUT"] = "false"  # tests must never load the real rembg model at app startup
 for _name in (
     "LOCAL_ACCESS_PASSWORD",
     "GEMINI_API_KEY",

@@ -92,3 +92,28 @@ def test_cutout_endpoint_returns_png_and_caches(client, fake_rembg, image_bytes)
 def test_cutout_endpoint_400_on_garbage(client, fake_rembg):
     resp = client.post("/api/posts/cutout", files={"image": ("a.png", b"not an image", "image/png")})
     assert resp.status_code == 400
+
+
+def test_cutout_refused_on_small_memory_host(client, monkeypatch):
+    from app.services import image_processing as ip
+
+    monkeypatch.setattr(ip.settings, "warm_cutout", True)
+    monkeypatch.setattr(ip, "_container_memory_limit", lambda: 512 * 1024 * 1024)
+    assert "512 MB" in ip.cutout_unavailable_reason()
+    called = []
+    monkeypatch.setattr(ip, "get_session", lambda: called.append(1))
+    ip.warm_up()  # must not even start loading the model
+    r = client.post("/api/posts/cutout", files={"image": ("a.png", b"not-an-image", "image/png")})
+    assert r.status_code == 503 and "RAM" in r.json()["detail"]
+    r = client.post("/api/posts/render-background?template_name=background_removed", files={"image": ("a.png", b"x", "image/png")})
+    assert r.status_code == 503
+    assert called == []
+
+
+def test_cutout_allowed_when_memory_is_unlimited_or_large(monkeypatch):
+    from app.services import image_processing as ip
+
+    monkeypatch.setattr(ip, "_container_memory_limit", lambda: None)
+    assert ip.cutout_unavailable_reason() is None
+    monkeypatch.setattr(ip, "_container_memory_limit", lambda: 8 << 30)
+    assert ip.cutout_unavailable_reason() is None

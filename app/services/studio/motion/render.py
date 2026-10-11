@@ -20,6 +20,15 @@ RENDER_TIMEOUT_S = 120
 MAX_RSS_MB = 2500
 
 
+def max_rss_mb() -> float:
+    """Child-process memory cap: 2.5 GB, but on a small container (Render free = 512 MB) only ~45% of its limit, so the
+    watchdog fails the project cleanly instead of the kernel OOM-killing the whole API."""
+    from app.services.image_processing import _container_memory_limit
+
+    limit = _container_memory_limit()
+    return MAX_RSS_MB if limit is None else min(MAX_RSS_MB, limit / (1 << 20) * 0.45)
+
+
 class MotionRenderError(RuntimeError):
     """User code failed at runtime (message is a short error with a line number) or the render timed out."""
 
@@ -88,7 +97,7 @@ def _run_child(cmd, env, enc, timeout, *, progress, expected_frames=0, preflight
             child.kill()
             child.wait()
             raise MotionRenderError(f"The scene took longer than {int(timeout)} s to render. Simplify it (fewer elements or shorter).")
-        if now - last_mem > 2 and _rss_mb(child.pid) > MAX_RSS_MB:
+        if now - last_mem > 2 and _rss_mb(child.pid) > max_rss_mb():
             child.kill()
             child.wait()
             raise MotionRenderError("The scene used too much memory. Use fewer or smaller elements.")

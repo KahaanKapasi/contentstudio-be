@@ -200,9 +200,48 @@ def get_session():
     return _session
 
 
+# --- memory guard: the rembg model + onnxruntime need ~1.5 GB; on a 512 MB host (Render free) loading it gets the
+# whole API OOM-killed, so refuse instead of crashing. Only container (cgroup) limits are detected; on a desktop/laptop
+# there is none and the cutout is allowed.
+MIN_CUTOUT_MEMORY_BYTES = 1_500_000_000
+
+
+class CutoutUnavailable(RuntimeError):
+    pass
+
+
+def _container_memory_limit() -> int | None:
+    for path in ("/sys/fs/cgroup/memory.max", "/sys/fs/cgroup/memory/memory.limit_in_bytes"):
+        try:
+            raw = Path(path).read_text().strip()
+        except OSError:
+            continue
+        if raw.isdigit() and int(raw) < (1 << 50):  # "max" / huge sentinel = unlimited
+            return int(raw)
+    return None
+
+
+def cutout_unavailable_reason() -> str | None:
+    limit = _container_memory_limit()
+    if limit is not None and limit < MIN_CUTOUT_MEMORY_BYTES:
+        return (
+            f"Subject cutout needs about 1.5 GB of RAM but this server only has {limit // (1 << 20)} MB. "
+            "Run the backend on the Latitude (see docs/12_Self_Hosting.md) to use background removal."
+        )
+    return None
+
+
+def _require_cutout_memory() -> None:
+    reason = cutout_unavailable_reason()
+    if reason:
+        raise CutoutUnavailable(reason)
+
+
 def warm_up() -> None:
     """Create the rembg session and run one tiny inference in a daemon thread (call at app startup)
-    so the first user-visible cutout doesn't pay for model load. Never raises."""
+    so the first user-visible cutout doesn't pay for model load. Never raises; skipped on small-memory hosts."""
+    if not settings.warm_cutout or cutout_unavailable_reason():
+        return
 
     def _run():
         try:
@@ -245,6 +284,7 @@ def cutout_png(image_bytes: bytes) -> bytes:
     except FileNotFoundError:
         pass
 
+    _require_cutout_memory()
     with _infer_lock:
         try:  # a concurrent identical request may have finished while we waited
             return path.read_bytes()

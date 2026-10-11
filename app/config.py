@@ -71,6 +71,8 @@ class Settings(BaseSettings):
 
     # Subject-cutout model for the Posts "background removed" template (rembg). See services/image_processing.py.
     rembg_model: str = "u2net"
+    # Preload the cutout model at startup (skipped automatically on <1.5 GB hosts). Set false to load it lazily.
+    warm_cutout: bool = True
 
     getty_username: str = ""
     getty_password: str = ""
