@@ -1,6 +1,7 @@
 import json
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
@@ -92,6 +93,18 @@ async def render_background(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return Response(content=rendered, media_type="image/jpeg")
+
+
+@router.post("/cutout")
+async def cutout(image: UploadFile = File(...)):
+    """Subject on a transparent background (PNG, long side <= 1024). Cached by content hash, so the
+    Posts editor can call this once per photo and lay the cutout out client-side."""
+    image_bytes = await image.read()
+    try:
+        png = await run_in_threadpool(image_processing.cutout_png, image_bytes)
+    except Exception as exc:  # unreadable image / missing model
+        raise HTTPException(status_code=400, detail=f"Could not cut out subject: {exc}") from exc
+    return Response(content=png, media_type="image/png")
 
 
 @router.post("/drafts/{draft_id}/publish")

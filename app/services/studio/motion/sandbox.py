@@ -8,11 +8,15 @@ render.py) so rendering and I/O overlap. Must not import anything from `app`: it
 import json
 import os
 import queue
-import resource
 import sys
 import threading
 import traceback
 from pathlib import Path
+
+try:
+    import resource  # Unix only; on Windows the parent's wall-clock timeout is the guard
+except ImportError:
+    resource = None
 
 HERE = Path(__file__).resolve().parent
 RENDER_TIMEOUT_S = 120
@@ -25,6 +29,9 @@ SAFE_BUILTINS = (
 
 
 def _limit_resources(duration: float) -> None:
+    if resource is None:
+        return
+
     def cap(which, value):
         try:
             resource.setrlimit(which, (value, value))
@@ -54,7 +61,12 @@ def _user_error(exc: BaseException) -> str:
 def main(code_path: str, config_path: str) -> int:
     cfg = json.loads(Path(config_path).read_text())
     _limit_resources(cfg["duration"])
-    out = os.fdopen(os.dup(1), "wb", buffering=0)  # keep the real stdout for frames
+    fd = os.dup(1)
+    if sys.platform == "win32":  # raw frames must not get \n -> \r\n translation
+        import msvcrt
+
+        msvcrt.setmode(fd, os.O_BINARY)
+    out = os.fdopen(fd, "wb", buffering=0)  # keep the real stdout for frames
     sys.stdout = sys.stderr  # stray print() must never corrupt the raw video stream
     sys.path.insert(0, str(HERE))
     import studio_motion as sm

@@ -32,9 +32,14 @@ class Settings(BaseSettings):
 
     gemini_api_key: str = ""
     gemini_text_model: str = "gemini-3.7-flash"
+    # Cheap/fast model for simple extraction tasks (e.g. Discovery topic generation). Empty = use gemini_text_model.
+    gemini_fast_model: str = ""
     # Verified against google-genai 1.75.0: generate_content + response_modalities=["AUDIO"] + SpeechConfig.
     gemini_tts_model: str = "gemini-3.8-flash-tts"
     gemini_image_model: str = "gemini-3.1-flash-image-preview"
+
+    # Discovery: re-scrape and generate topics every N minutes in the background (0 = off). Meant for an always-on host.
+    auto_scrape_minutes: int = 0
 
     pexels_api_key: str = ""
     pixabay_api_key: str = ""  # optional second stock source
@@ -60,6 +65,12 @@ class Settings(BaseSettings):
     # Cost awareness: optional JSON map of price id -> usd that overrides the built-in price table,
     # e.g. {"gemini.image.out": 0.08}. See app/services/costs/prices.py.
     price_overrides_json: str = ""
+
+    # Self-hosting: path to a built frontend (frontend/dist). When set, the API also serves the UI on the same origin.
+    frontend_dist: str = ""
+
+    # Subject-cutout model for the Posts "background removed" template (rembg). See services/image_processing.py.
+    rembg_model: str = "u2net"
 
     getty_username: str = ""
     getty_password: str = ""

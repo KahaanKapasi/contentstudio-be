@@ -22,10 +22,23 @@ this is replacing. "Background-removed" is the one template that does real
 subject segmentation, via rembg.
 """
 
+import hashlib
 import io
+import logging
+import os
+import threading
 from pathlib import Path
 
-from PIL import Image, ImageDraw, ImageEnhance, ImageFont
+from PIL import Image, ImageDraw, ImageFont, ImageStat
+
+from app.config import CACHE_DIR, settings
+
+logger = logging.getLogger(__name__)
+
+# Subject cutouts (rembg) — see get_session()/cutout_png() below.
+CUTOUT_CACHE_DIR = CACHE_DIR / "cutouts"
+CUTOUT_CACHE_MAX_BYTES = 300 * 1024 * 1024
+CUTOUT_MAX_SIDE = 1024  # rembg runs the network at 320px anyway; more input pixels only cost time
 
 # Long edge fixed at 1080/1920 depending on orientation — matches common
 # export resolutions for each shape rather than being an arbitrary choice.
@@ -41,6 +54,8 @@ DEFAULT_ASPECT_RATIO = "1:1"
 WATERMARK_TEXT = "@Madridonomy"  # placeholder — swap for the real handle/logo asset
 
 FONT_CANDIDATES = [
+    "C:/Windows/Fonts/arialbd.ttf",
+    "C:/Windows/Fonts/arial.ttf",
     "/System/Library/Fonts/Supplemental/Arial Bold.ttf",
     "/System/Library/Fonts/Supplemental/Arial.ttf",
     "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
@@ -65,15 +80,27 @@ def _load_font(size: int) -> ImageFont.FreeTypeFont:
     return ImageFont.load_default(size)
 
 
+def _open_reduced(image_bytes: bytes, size: tuple[int, int]) -> Image.Image:
+    """Decode as RGB, letting libjpeg do a cheap DCT-domain downscale (draft) so a 12 MP photo
+    isn't fully decoded just to be shrunk to ~1080 px. The draft keeps >= 1.25x the target on
+    each axis (when the source is that big), so the final Lanczos resize still has detail to work with."""
+    img = Image.open(io.BytesIO(image_bytes))
+    if img.format == "JPEG":
+        # draft() needs BOTH axes >= the request, so ask for the cover-scaled size (with a little oversampling headroom), not the target box.
+        k = 1.25 * max(size[0] / img.width, size[1] / img.height)
+        if k < 1:
+            img.draft("RGB", (int(img.width * k), int(img.height * k)))
+    return img.convert("RGB") if img.mode != "RGB" else img
+
+
 def _fit_cover(img: Image.Image, size: tuple[int, int]) -> Image.Image:
+    """Scale-to-cover + centre crop in a single resample (crop box fed to resize)."""
     target_w, target_h = size
     src_w, src_h = img.size
     scale = max(target_w / src_w, target_h / src_h)
-    new_w, new_h = int(src_w * scale), int(src_h * scale)
-    img = img.resize((new_w, new_h), Image.LANCZOS)
-    left = (new_w - target_w) // 2
-    top = (new_h - target_h) // 2
-    return img.crop((left, top, left + target_w, top + target_h))
+    box_w, box_h = target_w / scale, target_h / scale
+    left, top = (src_w - box_w) / 2, (src_h - box_h) / 2
+    return img.resize(size, Image.LANCZOS, box=(left, top, left + box_w, top + box_h), reducing_gap=2.0)
 
 
 def _wrap_text(text: str, font: ImageFont.FreeTypeFont, max_width: int, draw: ImageDraw.ImageDraw) -> list[str]:
@@ -113,36 +140,150 @@ def _add_watermark(draw: ImageDraw.ImageDraw, canvas_size: tuple[int, int]):
     draw.text((x, y), text, font=font, fill=(255, 255, 255, 200))
 
 
+def _color_contrast(img: Image.Image, saturation: float, contrast: float) -> Image.Image:
+    """ImageEnhance.Color then .Contrast fused into one 3x3 matrix pass (Color never overshoots, so
+    skipping the intermediate clip changes nothing). Contrast pivots on the mean luminance, which
+    Color leaves unchanged, so it's measured once on a 4x-reduced copy."""
+    mean = int(ImageStat.Stat(img.reduce(4).convert("L")).mean[0] + 0.5)
+    r, g, b = 0.299, 0.587, 0.114
+    rows = []
+    for i, w in enumerate((r, g, b)):
+        row = [(1 - saturation) * lw * contrast for lw in (r, g, b)]
+        row[i] += saturation * contrast
+        rows.extend(row + [mean * (1 - contrast)])
+    return img.convert("RGB", tuple(rows))
+
+
 def _treat_darkened_background(image_bytes: bytes, canvas_size: tuple[int, int]) -> Image.Image:
-    img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
-    img = _fit_cover(img, canvas_size)
-    img = ImageEnhance.Color(img).enhance(0.5)
-    img = ImageEnhance.Contrast(img).enhance(1.15)
-    img = ImageEnhance.Brightness(img).enhance(0.55)
+    img = _fit_cover(_open_reduced(image_bytes, canvas_size), canvas_size)
+    img = _color_contrast(img, 0.5, 1.15)
+    img = img.point(_DARKEN_LUT * 3)
     return img.convert("RGBA")
 
 
-def _treat_transparency_overlay(image_bytes: bytes, canvas_size: tuple[int, int]) -> Image.Image:
-    img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
-    img = _fit_cover(img, canvas_size)
-    img = ImageEnhance.Color(img).enhance(0.35)
+_DARKEN_LUT = [int(v * 0.55) for v in range(256)]
+_FADE_LUT = [int(v * 114 / 255 + 0.5) for v in range(256)]  # 45% over black == v * alpha / 255
 
-    black_bg = Image.new("RGBA", canvas_size, (0, 0, 0, 255))
-    faded = img.convert("RGBA")
-    faded.putalpha(int(255 * 0.45))
-    return Image.alpha_composite(black_bg, faded)
+
+def _treat_transparency_overlay(image_bytes: bytes, canvas_size: tuple[int, int]) -> Image.Image:
+    img = _fit_cover(_open_reduced(image_bytes, canvas_size), canvas_size)
+    img = _color_contrast(img, 0.35, 1.0)
+    # 45%-opaque image over solid black is just a per-channel scale; a LUT beats an RGBA composite.
+    return img.point(_FADE_LUT * 3).convert("RGBA")
+
+
+# --- rembg: one process-wide session, warmed at startup, CPU provider only ---------------------------
+# Measured on an 8-core Mac: rembg.remove(bytes) rebuilt the onnxruntime session on EVERY call, and
+# with the default provider list that includes CoreML, creating the u2net session took 40-75 s
+# (CoreML graph compilation) vs ~2 s on CPUExecutionProvider. Inference itself is ~2-4 s either way.
+
+_session = None
+_session_lock = threading.Lock()
+_infer_lock = threading.Lock()  # serialise inference: one onnx run already uses every core
+
+
+def get_session():
+    global _session
+    if _session is not None:
+        return _session
+    with _session_lock:
+        if _session is None:
+            import onnxruntime as ort  # heavy imports stay lazy
+            from rembg.sessions import sessions_class
+            from rembg.sessions.u2net import U2netSession
+
+            model = settings.rembg_model
+            cls = next((c for c in sessions_class if c.name() == model), U2netSession)
+            opts = ort.SessionOptions()
+            opts.intra_op_num_threads = os.cpu_count() or 1
+            _session = cls(model, opts, ["CPUExecutionProvider"])
+    return _session
+
+
+def warm_up() -> None:
+    """Create the rembg session and run one tiny inference in a daemon thread (call at app startup)
+    so the first user-visible cutout doesn't pay for model load. Never raises."""
+
+    def _run():
+        try:
+            from rembg import remove
+
+            buf = io.BytesIO()
+            Image.new("RGB", (64, 64), (128, 128, 128)).save(buf, format="PNG")
+            with _infer_lock:
+                remove(buf.getvalue(), session=get_session())
+        except Exception:  # model missing/offline: first real call will surface the error
+            logger.warning("rembg warm-up failed", exc_info=True)
+
+    threading.Thread(target=_run, name="rembg-warmup", daemon=True).start()
+
+
+def _cutout_cache_path(image_bytes: bytes) -> Path:
+    return CUTOUT_CACHE_DIR / f"{hashlib.sha256(image_bytes).hexdigest()}-{settings.rembg_model}.png"
+
+
+def _evict_cutout_cache() -> None:
+    try:
+        files = [(f.stat().st_mtime, f.stat().st_size, f) for f in CUTOUT_CACHE_DIR.glob("*.png")]
+        total = sum(size for _, size, _ in files)
+        for _, size, f in sorted(files, key=lambda t: t[0]):  # oldest (least recently used) first
+            if total <= CUTOUT_CACHE_MAX_BYTES:
+                break
+            f.unlink(missing_ok=True)
+            total -= size
+    except OSError:
+        logger.warning("cutout cache eviction failed", exc_info=True)
+
+
+def cutout_png(image_bytes: bytes) -> bytes:
+    """Subject-on-transparent PNG (long side <= CUTOUT_MAX_SIDE), cached on disk by content hash."""
+    path = _cutout_cache_path(image_bytes)
+    try:
+        data = path.read_bytes()
+        os.utime(path)  # LRU touch
+        return data
+    except FileNotFoundError:
+        pass
+
+    with _infer_lock:
+        try:  # a concurrent identical request may have finished while we waited
+            return path.read_bytes()
+        except FileNotFoundError:
+            pass
+        from rembg import remove
+
+        img = Image.open(io.BytesIO(image_bytes))
+        if img.format == "JPEG":
+            img.draft("RGB", (CUTOUT_MAX_SIDE * 2, CUTOUT_MAX_SIDE * 2))
+        img = img.convert("RGB")
+        img.thumbnail((CUTOUT_MAX_SIDE, CUTOUT_MAX_SIDE), Image.LANCZOS)
+        result = remove(img, session=get_session())  # PIL in -> PIL RGBA out
+        out = io.BytesIO()
+        result.convert("RGBA").save(out, format="PNG")
+        data = out.getvalue()
+
+    try:
+        CUTOUT_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(f".{os.getpid()}.{threading.get_ident()}.tmp")
+        tmp.write_bytes(data)
+        tmp.replace(path)
+        _evict_cutout_cache()
+    except OSError:
+        logger.warning("could not write cutout cache", exc_info=True)
+    return data
 
 
 def _treat_background_removed(image_bytes: bytes, canvas_size: tuple[int, int]) -> tuple[Image.Image, int]:
     """Returns (canvas, subject_bottom_y) — callers that draw text below the
     subject (the full render_template path) need subject_bottom_y; the plain
     background (no text) path only needs the canvas."""
-    from rembg import remove  # imported lazily — heavy (onnxruntime) import
+    subject = Image.open(io.BytesIO(cutout_png(image_bytes))).convert("RGBA")
 
-    cutout = remove(image_bytes)  # PNG bytes with alpha
-    subject = Image.open(io.BytesIO(cutout)).convert("RGBA")
-
-    subject.thumbnail((canvas_size[0] - 120, int(canvas_size[1] * 0.75)), Image.LANCZOS)
+    # Same placement as the frontend (components/posts/cutout.ts): fit inside (W-120) x 75% H, centred, 40px up.
+    max_w, max_h = canvas_size[0] - 120, int(canvas_size[1] * 0.75)
+    scale = min(max_w / subject.width, max_h / subject.height)
+    new_size = (max(1, round(subject.width * scale)), max(1, round(subject.height * scale)))
+    subject = subject.resize(new_size, Image.LANCZOS, reducing_gap=2.0 if scale < 1 else None)
     canvas = Image.new("RGBA", canvas_size, (0, 0, 0, 255))
     paste_x = (canvas_size[0] - subject.width) // 2
     paste_y = (canvas_size[1] - subject.height) // 2 - 40

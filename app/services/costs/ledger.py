@@ -9,12 +9,14 @@ from __future__ import annotations
 import json
 import logging
 from collections import defaultdict
+from contextlib import contextmanager
 from datetime import date, datetime, timedelta, timezone
 
 from app.database import SessionLocal
 from app.models import CostEvent
 from app.services.costs import estimate as est
 from app.services.costs import prices
+from app.services.gemini_client import track_usage
 
 log = logging.getLogger(__name__)
 
@@ -70,6 +72,19 @@ def log_event(
         log.warning("could not write cost event for %s", action, exc_info=True)
 
 
+@contextmanager
+def track_paid(action: str, params: dict | None = None, **kwargs):
+    """`with ledger.track_paid("articles.generate") as usage:` — like gemini_client.track_usage, but if the block
+    fails after Gemini calls were already made (tokens spent), that spend is still logged as a failed event."""
+    with track_usage() as usage:
+        try:
+            yield usage
+        except Exception as exc:
+            if usage:
+                log_event(action, params, usage=usage, details={"failed": True, "error": str(exc)[:200]}, **kwargs)
+            raise
+
+
 def _service(ev: CostEvent) -> str:
     service = est.SERVICE_BY_ACTION.get(ev.action, "other")
     if service in ("video", "studio"):
@@ -123,3 +138,137 @@ def summary(db, days: int = 30) -> dict:
         "by_action": sorted(({**a, "usd": round(a["usd"], 6)} for a in by_action.values()), key=lambda r: -r["usd"]),
         "daily": [{"date": d, "usd": round(v, 6)} for d, v in daily.items()],
     }
+
+
+# --- cost log (global tracker) ---
+
+ACTION_LABELS = {
+    "discovery.scrape": "Discovery scrape",
+    "articles.generate": "Article generated",
+    "articles.regenerate": "Article regenerated",
+    "video.titles": "Video titles generated",
+    "video.scripts": "Video scripts generated",
+    "video.prompt_improve": "Video prompt improved",
+    "video.generation": "Video generated",
+    "studio.project": "Studio project",
+    "posts.render_background": "Post background rendered",
+    "posts.render_preview": "Post preview rendered",
+    "posts.upload_to_host": "Image uploaded to host",
+    "posts.publish": "Post published to Instagram",
+    "instagram.publish_reel": "Reel published to Instagram",
+    "posts.match_scrape": "Match-day scrape",
+    "dashboard.instagram_refresh": "Instagram metrics refreshed",
+    "dashboard.twitter_refresh": "X metrics refreshed",
+    "dashboard.twitter_suggestions": "X post suggestions generated",
+    "dashboard.twitter_post": "Posted to X",
+}
+
+
+def _details(ev: CostEvent) -> dict:
+    try:
+        value = json.loads(ev.details or "{}")
+        return value if isinstance(value, dict) else {}
+    except ValueError:
+        return {}
+
+
+def _pretty(value: str | None) -> str:
+    text = (value or "").replace("_", " ").replace("-", " ").strip()
+    return text[:1].upper() + text[1:] if text else ""
+
+
+def label_for(action: str, details: dict | None = None) -> str:
+    """Human text for a cost event, e.g. 'Article generated' or 'Studio project: 3D explainer (failed)'."""
+    d = details or {}
+    base = ACTION_LABELS.get(action) or _pretty(action.split(".")[-1]) or action
+    if action == "studio.project":
+        extra = _pretty(d.get("recipe") or d.get("engine"))
+        base = f"Studio project: {extra}" if extra else base
+    elif action == "video.generation":
+        extra = " ".join(str(x) for x in (d.get("provider"), d.get("model")) if x)
+        base = f"Video generated: {extra}" if extra else base
+    if d.get("failed") or d.get("status") == "failed":
+        base += " (failed)"
+    elif action == "discovery.scrape" and d.get("status") == "skipped":
+        base += " (nothing new)"
+    elif action == "discovery.scrape" and d.get("status") == "error":
+        base += " (failed)"
+    return base
+
+
+def _has_estimate_expr():
+    return CostEvent.details.like('%"has_estimate": true%')
+
+
+def _usd_row(actual, low, high, flagged) -> tuple[float, bool]:
+    if actual is not None:
+        return actual, bool(flagged)
+    return ((low or 0.0) + (high or 0.0)) / 2, True
+
+
+def _since(days: int, tz_offset_minutes: int = 0) -> datetime:
+    """UTC (naive) start of the local calendar day `days - 1` days ago, for a client `tz_offset_minutes` east of UTC."""
+    offset = timedelta(minutes=max(-14 * 60, min(int(tz_offset_minutes), 14 * 60)))
+    local_today = (datetime.now(timezone.utc).replace(tzinfo=None) + offset).date()
+    return datetime.combine(local_today - timedelta(days=max(days, 1) - 1), datetime.min.time()) - offset
+
+
+def _all_rows(db):
+    return db.query(
+        CostEvent.id, CostEvent.created_at, CostEvent.actual_usd, CostEvent.estimated_low_usd,
+        CostEvent.estimated_high_usd, _has_estimate_expr()
+    ).order_by(CostEvent.id.asc()).all()
+
+
+def totals(db, tz_offset_minutes: int = 0) -> dict:
+    rows = _all_rows(db)
+    s_today, s7, s30 = _since(1, tz_offset_minutes), _since(7, tz_offset_minutes), _since(30, tz_offset_minutes)
+    out = {"all_time_usd": 0.0, "today_usd": 0.0, "last_7d_usd": 0.0, "last_30d_usd": 0.0}
+    any_est = False
+    for r in rows:
+        usd, is_est = _usd_row(r[2], r[3], r[4], r[5])
+        any_est = any_est or is_est
+        out["all_time_usd"] += usd
+        created = r[1].replace(tzinfo=None)
+        if created >= s30:
+            out["last_30d_usd"] += usd
+            if created >= s7:
+                out["last_7d_usd"] += usd
+                if created >= s_today:
+                    out["today_usd"] += usd
+    out = {k: round(v, 6) for k, v in out.items()}
+    out.update({"last_event_id": rows[-1][0] if rows else None, "count": len(rows), "any_estimates": any_est})
+    return out
+
+
+def events(db, limit: int = 100, before_id: int | None = None, days: int | None = None, tz_offset_minutes: int = 0) -> list[dict]:
+    """Newest first. `running_total_usd` is the all-time cumulative spend as of that event."""
+    limit = max(1, min(int(limit), 500))
+    running: dict[int, float] = {}
+    cumulative = 0.0
+    for r in _all_rows(db):
+        cumulative += _usd_row(r[2], r[3], r[4], r[5])[0]
+        running[r[0]] = cumulative
+    query = db.query(CostEvent)
+    if before_id is not None:
+        query = query.filter(CostEvent.id < before_id)
+    if days:
+        query = query.filter(CostEvent.created_at >= _since(days, tz_offset_minutes))
+    out = []
+    for ev in query.order_by(CostEvent.id.desc()).limit(limit).all():
+        details = _details(ev)
+        usd, is_est = _usd(ev)
+        created = ev.created_at if ev.created_at.tzinfo else ev.created_at.replace(tzinfo=timezone.utc)
+        out.append({
+            "id": ev.id,
+            "created_at": created.isoformat(),
+            "action": ev.action,
+            "label": label_for(ev.action, details),
+            "actual_usd": ev.actual_usd,
+            "est_low_usd": ev.estimated_low_usd,
+            "est_high_usd": ev.estimated_high_usd,
+            "usd": round(usd, 6),
+            "is_estimate": is_est,
+            "running_total_usd": round(running.get(ev.id, 0.0), 6),
+        })
+    return out

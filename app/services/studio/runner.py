@@ -322,5 +322,5 @@ def _log_usage(db: Session, project: VideoProject, ctx: Ctx, status: str, *, for
 def _fail(db: Session, project: VideoProject, ctx: Ctx, done: list[str], message: str) -> None:
     db.rollback()
     _persist(db, project, ctx, done, status="failed", error=clean(message), completed_at=utcnow())
-    _log_usage(db, project, ctx, "failed")
+    _log_usage(db, project, ctx, "failed", force=True)
 

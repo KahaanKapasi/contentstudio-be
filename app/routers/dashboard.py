@@ -18,7 +18,7 @@ from app.models import (
 from app.schemas import InstagramMetricOut, KpiBaselineIn, KpiBaselineOut, TwitterMetricOut, TwitterSuggestionOut
 from app.services import ig_token, instagram_client, twitter_client
 from app.services.costs import ledger
-from app.services.gemini_client import GeminiNotConfigured, generate_json, track_usage
+from app.services.gemini_client import GeminiNotConfigured, generate_json
 from app.services.instagram_client import InstagramNotConfigured
 from app.services.twitter_client import TwitterNotConfigured
 
@@ -83,6 +83,7 @@ def instagram_refresh(db: Session = Depends(get_db)):
     db.add(snapshot)
     db.commit()
     db.refresh(snapshot)
+    ledger.log_event("dashboard.instagram_refresh", ref_type="instagram_snapshot", ref_id=snapshot.id, actual_usd=0.0)
     return InstagramMetricOut.model_validate(snapshot).model_copy(update={"warning": warning})
 
 
@@ -97,6 +98,9 @@ def twitter_refresh(username: str, db: Session = Depends(get_db)):
         metrics = twitter_client.get_account_metrics(username)
     except TwitterNotConfigured as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except Exception as exc:  # the request was made; keep it in the cost log (X normally doesn't bill failed reads)
+        ledger.log_event("dashboard.twitter_refresh", actual_usd=0.0, details={"failed": True, "error": str(exc)[:200]})
+        raise
 
     snapshot = TwitterMetricSnapshot(
         followers=metrics.get("followers_count"),
@@ -131,7 +135,7 @@ Topics:
 {topics_block}
 """
     try:
-        with track_usage() as usage:
+        with ledger.track_paid("dashboard.twitter_suggestions") as usage:
             raw = generate_json(prompt)
     except GeminiNotConfigured as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
@@ -159,6 +163,9 @@ def post_suggestion(suggestion_id: int, db: Session = Depends(get_db)):
         twitter_client.post_tweet(suggestion.draft_text)
     except TwitterNotConfigured as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except Exception as exc:
+        ledger.log_event("dashboard.twitter_post", actual_usd=0.0, ref_type="twitter_suggestion", ref_id=suggestion.id, details={"failed": True, "error": str(exc)[:200]})
+        raise
     suggestion.status = "posted"
     db.commit()
     db.refresh(suggestion)

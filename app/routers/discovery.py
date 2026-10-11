@@ -1,12 +1,10 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models import TopicCandidate
+from app.models import DiscoveryRun, TopicCandidate
 from app.schemas import TopicCandidateOut, TopicStatusUpdate
 from app.services import discovery
-from app.services.costs import ledger, prices
-from app.services.gemini_client import GeminiNotConfigured, track_usage
 
 router = APIRouter(prefix="/api/discovery", tags=["discovery"])
 
@@ -37,39 +35,41 @@ def update_topic_status(topic_id: int, payload: TopicStatusUpdate, db: Session =
 
 
 @router.post("/scrape")
-def trigger_scrape(db: Session = Depends(get_db)):
-    """Manual 'trigger scrape now' — runs Collect+Clean, then Topic generation.
-    Runs inline (FastAPI request, not a background task) since the doc's
-    fallback-acceptable BackgroundTasks approach was chosen for this build;
-    a scrape+generate cycle is a few seconds, acceptable for a manual trigger.
-    """
-    collect_result = discovery.collect(db)
-    try:
-        with track_usage() as usage:
-            topics = discovery.generate_topics(db, scraped_item_ids=collect_result["scraped_item_ids"])
-    except GeminiNotConfigured as exc:
-        return {
-            "source_health": collect_result["source_health"],
-            "topics_created": 0,
-            "error": str(exc),
-        }
-    x_reads = sum(h["item_count"] for h in collect_result["source_health"] if h["source"] == "twitter" and h["ok"])
-    if usage or x_reads:  # nothing billable happened when there were no items and no X reads
-        ledger.log_event(
-            "discovery.scrape",
-            {"n_items": len(collect_result["scraped_item_ids"]), "include_x": x_reads > 0, "x_reads": x_reads},
-            usage=usage,
-            actual_usd=_with_x(ledger.usage_cost_usd(usage), x_reads),
-            details={"topics_created": len(topics), "x_reads": x_reads},
-        )
-    return {
-        "source_health": collect_result["source_health"],
-        "topics_created": len(topics),
+def trigger_scrape(background: BackgroundTasks, db: Session = Depends(get_db)):
+    """Manual 'trigger scrape now'. Collection (parallel RSS/X/IG fetch, a few seconds) happens in this request;
+    topic generation (Gemini) continues in a background task. Poll GET /runs/{id} until status != 'generating'.
+    Only items not seen before are sent to Gemini; with none, Gemini is skipped (cost $0)."""
+    started = discovery.start_run(db, trigger="manual")
+    run = started["run"]
+    if run["status"] == "generating":
+        background.add_task(discovery.finish_run, run["id"], started["item_ids"], started["x_reads"], "manual")
+    return _scrape_response(run)
+
+
+def _scrape_response(run: dict) -> dict:
+    out = {
+        "run_id": run["id"],
+        "status": run["status"],
+        "new_items": run["new_items"],
+        "source_health": run["source_health"],
+        "topics_created": run["topics_created"],
     }
+    if run["error"]:
+        out["error"] = run["error"]
+    if run["status"] == "skipped":
+        out["message"] = "No new items since the last scrape, so topic generation was skipped (cost $0)."
+    return out
 
 
-def _with_x(gemini_usd: float | None, x_reads: int) -> float | None:
-    """Actual spend = measured Gemini cost + X reads at the per-read price (None if neither is known)."""
-    if gemini_usd is None and not x_reads:
-        return None
-    return round((gemini_usd or 0.0) + x_reads * prices.usd("x.post_read"), 6)
+@router.get("/runs/latest")
+def latest_run(db: Session = Depends(get_db)):
+    run = discovery.latest_run(db)
+    return discovery.run_to_dict(run) if run else None
+
+
+@router.get("/runs/{run_id}")
+def get_run(run_id: int, db: Session = Depends(get_db)):
+    run = db.get(DiscoveryRun, run_id)
+    if not run:
+        raise HTTPException(status_code=404, detail="Run not found")
+    return discovery.run_to_dict(run)

@@ -297,11 +297,11 @@ def _step(db: Session, gen: VideoGeneration) -> None:
         gen.status = "running"
         db.commit()
     if result.state == "failed":
-        _fail(db, gen, result.error or "The provider could not generate this video.")
+        _fail(db, gen, result.error or "The provider could not generate this video.", billed=False)
     elif result.state == "succeeded":
         _finalize(db, gen, provider, result.output, age)
     elif age > GENERATION_TIMEOUT_S:
-        _fail(db, gen, f"Timed out after {GENERATION_TIMEOUT_S // 60} minutes without a finished video. Please retry.")
+        _fail(db, gen, f"Timed out after {GENERATION_TIMEOUT_S // 60} minutes without a finished video. Please retry.", billed=True)
 
 
 def _finalize(db: Session, gen: VideoGeneration, provider, output, age: float) -> None:
@@ -311,7 +311,7 @@ def _finalize(db: Session, gen: VideoGeneration, provider, output, age: float) -
     except ProviderError as exc:
         # Transient download problems get retried on the next poll until the timeout.
         if age > GENERATION_TIMEOUT_S:
-            _fail(db, gen, str(exc))
+            _fail(db, gen, str(exc), billed=True)
         return
     gen.local_path = dest.name
     if settings.cloudinary_url:
@@ -323,20 +323,34 @@ def _finalize(db: Session, gen: VideoGeneration, provider, output, age: float) -
     gen.error = None
     gen.completed_at = utcnow()
     db.commit()
+    _log_cost(gen, billed=True, known=True)
+
+
+def _log_cost(gen: VideoGeneration, *, billed: bool, known: bool = False, error: str | None = None) -> None:
+    """One `video.generation` cost event per attempt. Success: the known per-second price (None if unpriced -> the
+    estimate counts). Failed before/at the provider: logged at $0 (a trigger worth seeing). Failed in a way the
+    provider may still have billed (timeout, download): actual left unset so the estimate range counts."""
+    if known:
+        actual = catalog.estimate_cost(gen.provider, gen.model, gen.resolution, gen.duration_seconds)
+    else:
+        actual = None if billed else 0.0
+    details = {"provider": gen.provider, "model": gen.model}
+    if error is not None:
+        details.update({"failed": True, "error": error[:200]})
     ledger.log_event(
         "video.generation",
         {"provider": gen.provider, "model": gen.model, "resolution": gen.resolution, "duration_seconds": gen.duration_seconds},
-        ref_type="video_generation", ref_id=gen.id,
-        actual_usd=catalog.estimate_cost(gen.provider, gen.model, gen.resolution, gen.duration_seconds),  # known per-second price (None if unpriced)
-        details={"provider": gen.provider, "model": gen.model},
+        ref_type="video_generation", ref_id=gen.id, actual_usd=actual, details=details,
     )
 
 
-def _fail(db: Session, gen: VideoGeneration, message: str) -> None:
+def _fail(db: Session, gen: VideoGeneration, message: str, billed: bool | None = None) -> None:
+    """billed=None: assume the provider may have billed once a job was submitted."""
     gen.status = "failed"
     gen.error = _clean(message)
     gen.completed_at = utcnow()
     db.commit()
+    _log_cost(gen, billed=bool(gen.provider_job_id) if billed is None else billed, error=gen.error)
 
 
 def _clean(message: str) -> str:

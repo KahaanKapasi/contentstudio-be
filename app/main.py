@@ -1,16 +1,21 @@
 import json
 import threading
 
-from fastapi import Depends, FastAPI
+from pathlib import Path
+
+from fastapi import Depends, FastAPI, HTTPException
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.config import settings
 from app.database import Base, SessionLocal, engine
 from app.models import Template
 from app import auth
 from app.auth import require_access
 from app.migrations import run_migrations
 from app.routers import articles, costs, dashboard, discovery, posts, studio, video
-from app.services import ig_token
+from app.services import discovery as discovery_service, ig_token, image_processing
 
 app = FastAPI(title="Content Studio API")
 
@@ -74,8 +79,29 @@ def on_startup():
     seed_templates()
     # Off the request path: a due refresh is one HTTP call and must not delay cold start.
     threading.Thread(target=ig_token.refresh_if_due, daemon=True).start()
+    discovery_service.fail_stale_runs()
+    discovery_service.backfill_hashes()
+    discovery_service.start_scheduler()  # no-op unless AUTO_SCRAPE_MINUTES > 0
+    image_processing.warm_up()  # loads the cutout model in a daemon thread so the first template click isn't cold
 
 
 @app.get("/api/health")
 def health():
     return {"status": "ok"}
+
+
+# Optional: serve the built frontend from this same process (self-hosted setup, see docs/12_Self_Hosting.md).
+# Registered last so every /api route above wins over the catch-all.
+_dist = Path(settings.frontend_dist) if settings.frontend_dist else None
+if _dist and (_dist / "index.html").exists():
+    if (_dist / "assets").is_dir():
+        app.mount("/assets", StaticFiles(directory=_dist / "assets"), name="ui-assets")
+
+    @app.get("/{full_path:path}", include_in_schema=False)
+    def serve_ui(full_path: str):
+        if full_path.startswith("api/"):
+            raise HTTPException(status_code=404, detail="Not found")
+        candidate = (_dist / full_path).resolve()
+        if full_path and candidate.is_file() and _dist.resolve() in candidate.parents:
+            return FileResponse(candidate)
+        return FileResponse(_dist / "index.html")  # SPA route

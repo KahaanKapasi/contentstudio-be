@@ -1,11 +1,15 @@
 import json
+import logging
 from contextlib import contextmanager
 from contextvars import ContextVar
 
 from google import genai
+from google.genai import errors as genai_errors
 from google.genai import types
 
 from app.config import settings
+
+log = logging.getLogger(__name__)
 
 _client: genai.Client | None = None
 
@@ -68,24 +72,71 @@ def get_client() -> genai.Client:
     if not settings.gemini_api_key:
         raise GeminiNotConfigured("GEMINI_API_KEY is not set in .env")
     if _client is None:
-        _client = genai.Client(api_key=settings.gemini_api_key)
+        _client = genai.Client(
+            api_key=settings.gemini_api_key,
+            # A capped/hung project otherwise blocks a request for 20+ s; image/video/TTS calls get their own longer limits.
+            http_options=types.HttpOptions(timeout=90_000),
+        )
     return _client
 
 
-def generate_text(prompt: str) -> str:
+def fast_model() -> str:
+    """Model for cheap/simple tasks: GEMINI_FAST_MODEL, falling back to the main text model."""
+    return settings.gemini_fast_model or settings.gemini_text_model
+
+
+# --- thinking control for JSON-extraction calls ---
+# Gemini 3.x takes `thinking_level` (MINIMAL), 2.5 takes `thinking_budget` (0). Not every model accepts either
+# (some can't turn thinking off), so a 400 that mentions thinking is retried once without the config and that
+# model is remembered in `_thinking_rejected` so the rejected request is never sent again.
+_thinking_rejected: set[str] = set()
+
+
+def _thinking_config(model: str, effort: str | None):
+    if not effort or model in _thinking_rejected:
+        return None
+    try:
+        if "2.5" in model:
+            budget = {"minimal": 0, "low": 512, "medium": 2048}.get(effort)
+            return types.ThinkingConfig(thinking_budget=budget) if budget is not None else None
+        level = {"minimal": "MINIMAL", "low": "LOW", "medium": "MEDIUM", "high": "HIGH"}.get(effort)
+        return types.ThinkingConfig(thinking_level=level) if level else None
+    except Exception:
+        return None
+
+
+def _is_thinking_rejection(exc: Exception) -> bool:
+    code = getattr(exc, "code", None)
+    return isinstance(exc, genai_errors.APIError) and code in (400, None) and "thinking" in str(exc).lower()
+
+
+def generate_text(prompt: str, model: str | None = None) -> str:
     client = get_client()
-    response = client.models.generate_content(model=settings.gemini_text_model, contents=prompt)
+    response = client.models.generate_content(model=model or settings.gemini_text_model, contents=prompt)
     record_usage(response)
     return response.text or ""
 
 
-def generate_json(prompt: str) -> dict | list:
+def generate_json(prompt: str, model: str | None = None, thinking: str | None = "minimal") -> dict | list:
+    """JSON-mode generation. `thinking` ("minimal" by default, None = model default) keeps extraction calls fast
+    and cheap; see the note above for how a model that rejects the setting is handled."""
     client = get_client()
-    response = client.models.generate_content(
-        model=settings.gemini_text_model,
-        contents=prompt,
-        config={"response_mime_type": "application/json"},
-    )
+    model = model or settings.gemini_text_model
+    config = {"response_mime_type": "application/json"}
+    thinking_config = _thinking_config(model, thinking)
+    try:
+        if thinking_config is not None:
+            response = client.models.generate_content(
+                model=model, contents=prompt, config=types.GenerateContentConfig(**config, thinking_config=thinking_config)
+            )
+        else:
+            response = client.models.generate_content(model=model, contents=prompt, config=config)
+    except Exception as exc:
+        if thinking_config is None or not _is_thinking_rejection(exc):
+            raise
+        _thinking_rejected.add(model)
+        log.info("Gemini model %s rejected the thinking config; retrying without it", model)
+        response = client.models.generate_content(model=model, contents=prompt, config=config)
     record_usage(response)
     return json.loads(response.text or "{}")
 

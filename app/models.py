@@ -18,6 +18,26 @@ class ScrapedItem(Base):
     source_url: Mapped[str] = mapped_column(String, nullable=True)
     raw_text: Mapped[str] = mapped_column(Text, nullable=True)
     scraped_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    # sha1 of the normalized url (or text when there is none): lets a re-scrape skip items we already have.
+    content_hash: Mapped[str] = mapped_column(String, nullable=True, index=True)
+
+
+class DiscoveryRun(Base):
+    """One Discovery scrape: collection is synchronous, topic generation runs in the background.
+    status: generating | done | skipped (no new items) | error."""
+
+    __tablename__ = "discovery_runs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    started_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    finished_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
+    status: Mapped[str] = mapped_column(String, nullable=False, default="generating")
+    new_items: Mapped[int] = mapped_column(Integer, default=0)
+    topics_created: Mapped[int] = mapped_column(Integer, default=0)
+    error: Mapped[str] = mapped_column(Text, nullable=True)
+    source_health: Mapped[str] = mapped_column(Text, nullable=True)  # JSON
+    cost_usd: Mapped[float] = mapped_column(Float, nullable=True)
+    trigger: Mapped[str] = mapped_column(String, nullable=True)  # manual | auto
 
 
 class TopicCandidate(Base):

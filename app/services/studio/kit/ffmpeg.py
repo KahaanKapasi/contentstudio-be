@@ -188,6 +188,7 @@ def mix_audio(voice: Path | None, bgm: Path | None, dst: Path, seconds: float, *
 
 def _filter_escape(value: str) -> str:
     """Escape a path for use inside a filtergraph option value."""
+    value = value.replace("\\", "/")  # Windows paths: ffmpeg accepts forward slashes, and \\ would be eaten as an escape
     return re.sub(r"([\\:',\[\]])", r"\\\1", value)
 
 

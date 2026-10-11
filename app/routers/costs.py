@@ -31,6 +31,24 @@ def spend_summary(days: int = 30, db: Session = Depends(get_db)):
     return ledger.summary(db, days)
 
 
+@router.get("/total")
+def spend_total(tz_offset_minutes: int = 0, db: Session = Depends(get_db)):
+    """Headline numbers for the global cost tracker. `tz_offset_minutes` (minutes east of UTC) sets the day boundary."""
+    return ledger.totals(db, tz_offset_minutes)
+
+
+@router.get("/events")
+def spend_events(
+    limit: int = 100,
+    before_id: int | None = None,
+    days: int | None = None,
+    tz_offset_minutes: int = 0,
+    db: Session = Depends(get_db),
+):
+    """The cost log, newest first. `days` (1 = today, 7, 30) limits to that many local calendar days."""
+    return ledger.events(db, limit, before_id, days, tz_offset_minutes)
+
+
 @router.get("/prices")
 def price_table():
     return {"as_of": date.today().isoformat(), "prices": prices.table()}

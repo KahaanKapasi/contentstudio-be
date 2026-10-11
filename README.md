@@ -15,6 +15,14 @@ uvicorn app.main:app --reload --port 8000
 Tables are created (and the 3 Posts templates seeded) on startup. With no `DATABASE_URL` it uses
 `storage/content_studio.db`.
 
+## Discovery scraping
+
+`POST /api/discovery/scrape` collects the RSS feeds (12, in parallel, ~1-2 s) and returns right away; Gemini topic
+generation continues in the background (poll `GET /api/discovery/runs/{id}`). Only items not seen before are sent to
+Gemini (max 40 per run, 300 chars each), and a scrape with nothing new skips Gemini entirely ($0).
+Set `AUTO_SCRAPE_MINUTES=30` (default `0` = off) on an always-on host to run the same flow on a timer so topics are
+already waiting when you open the app. `GEMINI_FAST_MODEL` optionally routes this extraction to a cheaper model.
+
 ## Video generation
 
 `/api/video/generations` turns a prompt into an MP4 through one of three providers; each is enabled

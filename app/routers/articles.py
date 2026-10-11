@@ -9,7 +9,7 @@ from app.models import Article
 from app.schemas import ArticleGenerateRequest, ArticleOut, ArticleUpdate
 from app.services import article_pipeline
 from app.services.costs import ledger
-from app.services.gemini_client import GeminiNotConfigured, track_usage
+from app.services.gemini_client import GeminiNotConfigured
 
 router = APIRouter(prefix="/api/articles", tags=["articles"])
 
@@ -30,7 +30,7 @@ def get_article(article_id: int, db: Session = Depends(get_db)):
 @router.post("/generate", response_model=ArticleOut)
 def generate(payload: ArticleGenerateRequest, db: Session = Depends(get_db)):
     try:
-        with track_usage() as usage:
+        with ledger.track_paid("articles.generate", ref_type="topic", ref_id=payload.topic_id) as usage:
             article = article_pipeline.generate_article(db, payload.topic_id)
     except GeminiNotConfigured as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
@@ -82,7 +82,7 @@ def regenerate(article_id: int, db: Session = Depends(get_db)):
     if not article or article.topic_id is None:
         raise HTTPException(status_code=404, detail="Article or its source topic not found")
     try:
-        with track_usage() as usage:
+        with ledger.track_paid("articles.regenerate", ref_type="article", ref_id=article_id) as usage:
             new_article = article_pipeline.generate_article(db, article.topic_id)
     except GeminiNotConfigured as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc

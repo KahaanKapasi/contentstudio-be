@@ -19,7 +19,7 @@ from app.schemas import (
 )
 from app.services import instagram_publish, video_generation, video_pipeline
 from app.services.costs import ledger
-from app.services.gemini_client import GeminiNotConfigured, track_usage
+from app.services.gemini_client import GeminiNotConfigured
 from app.services.video_providers import ProviderNotConfigured, catalog
 
 router = APIRouter(prefix="/api/video", tags=["video"])
@@ -28,7 +28,7 @@ router = APIRouter(prefix="/api/video", tags=["video"])
 @router.post("/generate-titles", response_model=list[VideoTopicOut])
 def generate_titles(payload: VideoTitlesGenerateRequest, db: Session = Depends(get_db)):
     try:
-        with track_usage() as usage:
+        with ledger.track_paid("video.titles", ref_type="topic", ref_id=payload.topic_id) as usage:
             result = video_pipeline.generate_video_titles(db, payload.topic_id)
         ledger.log_event("video.titles", ref_type="topic", ref_id=payload.topic_id, usage=usage)
         return result
@@ -49,7 +49,7 @@ def list_video_topics(topic_id: int | None = None, db: Session = Depends(get_db)
 @router.post("/scripts/generate", response_model=list[ScriptOut])
 def generate_scripts(payload: ScriptGenerateRequest, db: Session = Depends(get_db)):
     try:
-        with track_usage() as usage:
+        with ledger.track_paid("video.scripts", ref_type="video_topic", ref_id=payload.video_topic_id) as usage:
             result = video_pipeline.generate_scripts(db, payload.video_topic_id)
         ledger.log_event("video.scripts", ref_type="video_topic", ref_id=payload.video_topic_id, usage=usage)
         return result
@@ -117,7 +117,7 @@ def list_providers():
 @router.post("/prompt/improve", response_model=PromptImproveOut)
 def improve_prompt(payload: PromptImproveRequest):
     try:
-        with track_usage() as usage:
+        with ledger.track_paid("video.prompt_improve", {"research": payload.research}) as usage:
             result = video_generation.improve_prompt(
                 payload.idea, payload.research, payload.aspect_ratio, payload.duration_seconds
             )

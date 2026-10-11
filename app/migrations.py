@@ -7,7 +7,7 @@ SQLite: checked via PRAGMA table_info first). Safe to run on every startup.
 
 import logging
 
-from sqlalchemy import text
+from sqlalchemy import inspect, text
 from sqlalchemy.engine import Engine
 
 log = logging.getLogger(__name__)
@@ -23,7 +23,9 @@ _IG_COLUMNS = [
 ADDED_COLUMNS: dict[str, list[tuple[str, str]]] = {
     "video_generations": _IG_COLUMNS,
     "video_projects": _IG_COLUMNS,
+    "scraped_items": [("content_hash", "VARCHAR")],
 }
+_IG_TABLES = ("video_generations", "video_projects")
 
 
 def run_migrations(engine: Engine) -> None:
@@ -42,7 +44,7 @@ def run_migrations(engine: Engine) -> None:
                 for name, sql_type in columns:
                     conn.execute(text(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {name} {sql_type}"))
         # A server restart kills any in-flight publish thread; don't leave the row blocked as 'publishing'.
-        for table in ADDED_COLUMNS:
+        for table in _IG_TABLES:
             conn.execute(
                 text(
                     f"UPDATE {table} SET instagram_status = 'failed', "
@@ -50,3 +52,6 @@ def run_migrations(engine: Engine) -> None:
                     "WHERE instagram_status = 'publishing'"
                 )
             )
+        # content_hash is declared index=True on the model, so create_all builds it on fresh DBs; add it to old ones.
+        if inspect(conn).has_table("scraped_items"):
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_scraped_items_content_hash ON scraped_items (content_hash)"))

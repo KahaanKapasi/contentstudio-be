@@ -14,3 +14,4 @@ class SourceResult:
     items: list[RawItem]
     ok: bool
     error: str | None = None
+    not_modified: bool = False  # server answered 304: items are the cached ones from the previous fetch
