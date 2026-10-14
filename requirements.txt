@@ -16,3 +16,4 @@ tweepy==4.14.0
 psycopg[binary]==3.2.3
 edge-tts==7.2.8
 imageio-ffmpeg==0.6.0
+higgsfield-client==0.2.0
