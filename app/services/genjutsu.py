@@ -382,11 +382,13 @@ def _succeed(db: Session, job: GenjutsuJob, sdk) -> None:
         # The result lives on Higgsfield for a while; keep the URL so nothing paid is lost.
         job.video_url = url
         return _fail(db, job, "failed", f"The video was generated but downloading it failed ({friendly_error(exc)}). Its link: {url}", spent=job.est_cost_usd)
+    # Finish the job FIRST: the file is on disk and the user is waiting. The optional durable copy happens afterwards.
     job.local_path = "output.mp4"
-    job.video_url = _host_copy(dest) or url
+    job.video_url = url  # Higgsfield's own link (kept for a while) until a durable copy exists
     job.status, job.error, job.completed_at = "succeeded", None, _now()
     db.commit()
     _log_cost(job, job.est_cost_usd)
+    threading.Thread(target=_attach_hosted_copy, args=(job.id, dest), daemon=True).start()
 
 
 def _host_copy(path: Path) -> str | None:
@@ -400,6 +402,18 @@ def _host_copy(path: Path) -> str | None:
     except Exception:  # noqa: BLE001
         log.info("genjutsu: cloudinary upload failed; keeping the local copy only")
         return None
+
+
+def _attach_hosted_copy(job_id: int, path: Path) -> None:
+    """Runs after the job is already marked succeeded, so a slow or hung upload can never hold the result back."""
+    hosted = _host_copy(path)
+    if not hosted:
+        return
+    with SessionLocal() as db:
+        job = db.get(GenjutsuJob, job_id)
+        if job is not None and job.status == "succeeded":
+            job.video_url = hosted
+            db.commit()
 
 
 def cancel_job(db: Session, job: GenjutsuJob) -> GenjutsuJob:

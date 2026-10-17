@@ -318,3 +318,31 @@ def test_estimate_rejects_bad_resolution():
 def test_estimate_endpoint(client):
     r = client.post("/api/costs/estimate", json={"action": "genjutsu.motion_transfer", "params": {"duration_seconds": 10, "resolution": "480p"}})
     assert r.status_code == 200 and r.json()["high_usd"] == pytest.approx(3.18)
+
+
+def test_a_hung_backup_upload_never_holds_back_the_finished_video(client, env, monkeypatch):
+    """Regression: the optional durable-copy upload used to run BEFORE the job was marked succeeded, so a stuck
+    upload left a finished (and already billed) video showing as 'running'."""
+    import threading
+
+    use_sdk(monkeypatch, FakeSDK())
+    release, finished = threading.Event(), threading.Event()
+
+    def hung_upload(path):
+        release.wait(timeout=10)
+        finished.set()
+        return "https://res.cloudinary.example/genjutsu.mp4"
+
+    monkeypatch.setattr(genjutsu, "_host_copy", hung_upload)
+    job = client.get(f"{URL}/jobs/{post(client, make_video(env)).json()['id']}").json()
+    assert job["status"] == "succeeded" and job["has_file"]  # done while the upload is still blocked
+    assert job["video_url"] == "https://cdn.example/out.mp4"  # Higgsfield's own link until the durable copy exists
+    release.set()
+    assert finished.wait(timeout=10)
+    for _ in range(50):  # the background thread then swaps in the durable URL
+        if client.get(f"{URL}/jobs/{job['id']}").json()["video_url"] == "https://res.cloudinary.example/genjutsu.mp4":
+            break
+        import time as _t
+
+        _t.sleep(0.1)
+    assert client.get(f"{URL}/jobs/{job['id']}").json()["video_url"] == "https://res.cloudinary.example/genjutsu.mp4"
