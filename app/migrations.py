@@ -23,7 +23,9 @@ _IG_COLUMNS = [
 ADDED_COLUMNS: dict[str, list[tuple[str, str]]] = {
     "video_generations": _IG_COLUMNS,
     "video_projects": _IG_COLUMNS,
-    "scraped_items": [("content_hash", "VARCHAR")],
+    "scraped_items": [("content_hash", "VARCHAR"), ("workspace", "VARCHAR DEFAULT 'footonomy'")],
+    "topic_candidates": [("workspace", "VARCHAR DEFAULT 'footonomy'")],
+    "discovery_runs": [("workspace", "VARCHAR DEFAULT 'footonomy'")],
 }
 _IG_TABLES = ("video_generations", "video_projects")
 

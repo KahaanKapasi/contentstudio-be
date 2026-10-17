@@ -20,6 +20,7 @@ class ScrapedItem(Base):
     scraped_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
     # sha1 of the normalized url (or text when there is none): lets a re-scrape skip items we already have.
     content_hash: Mapped[str] = mapped_column(String, nullable=True, index=True)
+    workspace: Mapped[str] = mapped_column(String, default="footonomy", index=True)  # madridonomy | footonomy | general
 
 
 class DiscoveryRun(Base):
@@ -38,6 +39,7 @@ class DiscoveryRun(Base):
     source_health: Mapped[str] = mapped_column(Text, nullable=True)  # JSON
     cost_usd: Mapped[float] = mapped_column(Float, nullable=True)
     trigger: Mapped[str] = mapped_column(String, nullable=True)  # manual | auto
+    workspace: Mapped[str] = mapped_column(String, default="footonomy")
 
 
 class TopicCandidate(Base):
@@ -49,6 +51,7 @@ class TopicCandidate(Base):
     suitable_for: Mapped[str] = mapped_column(String, nullable=False)  # article, video, both
     status: Mapped[str] = mapped_column(String, default="new")  # new, selected, discarded
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    workspace: Mapped[str] = mapped_column(String, default="footonomy", index=True)  # madridonomy | footonomy | general
 
 
 class TopicSourceLink(Base):

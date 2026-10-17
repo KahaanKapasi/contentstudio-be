@@ -14,6 +14,7 @@ from app.models import DiscoveryRun, ScrapedItem, TopicCandidate, TopicSourceLin
 from app.services.costs import ledger, prices
 from app.services.gemini_client import GeminiNotConfigured, fast_model, generate_json, track_usage
 from app.services.scraping import instagram, rss, twitter
+from app.services.scraping import workspaces
 from app.services.scraping.base import SourceResult
 
 log = logging.getLogger(__name__)
@@ -24,8 +25,7 @@ ITEM_CHARS = 300
 TOPIC_PROMPT_TEMPLATE = """You are a football content strategist. Below is a batch of \
 raw scraped items (news headlines/snippets, tweets) from the last collection run. \
 Reduce this into 15-20 distinct, non-overlapping content topic candidates for a \
-football content creator (Madridonomy — Real Madrid-focused, expanding to broader \
-football content).
+{focus}.
 
 For each topic give: a short title, a one-sentence rationale (why it's trending/\
 relevant right now), and which content format(s) it suits: "article", "video", or \
@@ -67,16 +67,18 @@ def _dedupe(items: list[tuple[SourceResult, int]]) -> list[tuple[SourceResult, i
     return deduped
 
 
-def collect(db: Session) -> dict:
+def collect(db: Session, workspace: str = workspaces.DEFAULT_WORKSPACE) -> dict:
     """Runs the Collect + Clean steps against all configured sources.
     Any single source failing must not halt the pipeline (per doc) — each
     source's ok/error is returned so failures are visible immediately rather
     than discovered later. Only items not already stored (by content hash) are saved,
     so `scraped_item_ids` / `new_items` are the NEW items of this run.
     """
+    ws = workspaces.get(workspace)
     results: list[SourceResult] = []
-    results.extend(rss.fetch_all_feeds())
-    results.append(twitter.fetch_topic())
+    results.extend(rss.fetch_all_feeds(list(ws.feeds)))
+    if ws.x_query:
+        results.append(twitter.fetch_topic(ws.x_query))
     results.append(instagram.fetch_topic())
 
     flat: list[tuple[SourceResult, int]] = [(r, i) for r in results if r.ok for i in range(len(r.items))]
@@ -85,7 +87,12 @@ def collect(db: Session) -> dict:
     hashes = [content_hash(result.items[idx].raw_text, result.items[idx].source_url) for result, idx in flat]
     known: set[str] = set()
     for i in range(0, len(hashes), 500):
-        known.update(h for (h,) in db.query(ScrapedItem.content_hash).filter(ScrapedItem.content_hash.in_(hashes[i : i + 500])))
+        known.update(
+            h
+            for (h,) in db.query(ScrapedItem.content_hash).filter(
+                ScrapedItem.workspace == ws.id, ScrapedItem.content_hash.in_(hashes[i : i + 500])
+            )
+        )  # per workspace: the same article can legitimately feed both Madridonomy and Footonomy
 
     saved_ids = []
     seen_now: set[str] = set()
@@ -94,7 +101,7 @@ def collect(db: Session) -> dict:
             continue
         seen_now.add(h)
         raw = result.items[idx]
-        row = ScrapedItem(source=raw.source, source_url=raw.source_url, raw_text=raw.raw_text, content_hash=h)
+        row = ScrapedItem(source=raw.source, source_url=raw.source_url, raw_text=raw.raw_text, content_hash=h, workspace=ws.id)
         db.add(row)
         db.flush()
         saved_ids.append(row.id)
@@ -144,9 +151,15 @@ def _balanced(rows: list[ScrapedItem], limit: int) -> list[ScrapedItem]:
     return picked
 
 
-def generate_topics(db: Session, scraped_item_ids: list[int] | None = None, limit: int = MAX_NEW_ITEMS) -> list[TopicCandidate]:
+def generate_topics(
+    db: Session,
+    scraped_item_ids: list[int] | None = None,
+    limit: int = MAX_NEW_ITEMS,
+    workspace: str = workspaces.DEFAULT_WORKSPACE,
+) -> list[TopicCandidate]:
     """Runs the Topic generation step via Gemini against recently scraped items (newest `limit`, 300 chars each)."""
-    query = db.query(ScrapedItem)
+    ws = workspaces.get(workspace)
+    query = db.query(ScrapedItem).filter(ScrapedItem.workspace == ws.id)
     if scraped_item_ids:
         query = query.filter(ScrapedItem.id.in_(scraped_item_ids))
     scraped = _balanced(query.order_by(ScrapedItem.id.desc()).limit(limit * 10).all(), limit)
@@ -155,7 +168,7 @@ def generate_topics(db: Session, scraped_item_ids: list[int] | None = None, limi
         return []
 
     items_block = "\n".join(f"[{i}] ({item.source}) {(item.raw_text or '')[:ITEM_CHARS]}" for i, item in enumerate(scraped))
-    prompt = TOPIC_PROMPT_TEMPLATE.format(items_block=items_block)
+    prompt = TOPIC_PROMPT_TEMPLATE.format(items_block=items_block, focus=ws.topic_focus)
 
     raw_topics = generate_json(prompt, model=fast_model())
     if isinstance(raw_topics, dict):  # tolerate {"topics": [...]}
@@ -168,6 +181,7 @@ def generate_topics(db: Session, scraped_item_ids: list[int] | None = None, limi
             rationale=t.get("rationale", ""),
             suitable_for=t.get("suitable_for", "both"),
             status="new",
+            workspace=ws.id,
         )
         db.add(topic)
         db.flush()
@@ -199,6 +213,7 @@ def run_to_dict(run: DiscoveryRun) -> dict:
         "source_health": json.loads(run.source_health) if run.source_health else [],
         "cost_usd": run.cost_usd,
         "elapsed_seconds": round(max((end - started).total_seconds(), 0.0), 1),
+        "workspace": run.workspace or workspaces.DEFAULT_WORKSPACE,
     }
 
 
@@ -221,14 +236,15 @@ def _log_cost(run_id: int, usage: list[dict], x_reads: int, new_items: int, topi
     return cost
 
 
-def start_run(db: Session, trigger: str = "manual") -> dict:
+def start_run(db: Session, trigger: str = "manual", workspace: str = workspaces.DEFAULT_WORKSPACE) -> dict:
     """Collect now (fast), then decide: skipped (nothing new), error (Gemini not configured) or generating.
     Returns {"run": DiscoveryRun dict, "item_ids": [...], "x_reads": int}; the caller schedules `finish_run` when
     run["status"] == "generating"."""
-    run = DiscoveryRun(status="generating", trigger=trigger)
+    workspace = workspaces.get(workspace).id  # validates
+    run = DiscoveryRun(status="generating", trigger=trigger, workspace=workspace)
     db.add(run)
     db.commit()
-    collected = collect(db)
+    collected = collect(db, workspace)
     run.new_items = collected["new_items"]
     run.source_health = json.dumps(collected["source_health"])
     x_reads = collected["x_reads"]
@@ -244,13 +260,13 @@ def start_run(db: Session, trigger: str = "manual") -> dict:
     return {"run": run_to_dict(run), "item_ids": collected["scraped_item_ids"], "x_reads": x_reads}
 
 
-def finish_run(run_id: int, item_ids: list[int], x_reads: int = 0, trigger: str = "manual") -> None:
+def finish_run(run_id: int, item_ids: list[int], x_reads: int = 0, trigger: str = "manual", workspace: str = workspaces.DEFAULT_WORKSPACE) -> None:
     """Background half of a scrape: topic generation + cost logging. Never raises."""
     topics_n, usage, error = 0, [], None
     try:
         with SessionLocal() as db:
             with track_usage() as usage:
-                topics_n = len(generate_topics(db, scraped_item_ids=item_ids))
+                topics_n = len(generate_topics(db, scraped_item_ids=item_ids, workspace=workspace))
     except GeminiNotConfigured as exc:
         error = str(exc)
     except Exception as exc:  # noqa: BLE001 — surfaced on the run row instead of vanishing in a background thread
@@ -286,29 +302,30 @@ def fail_stale_runs() -> None:
         log.warning("could not close stale discovery runs", exc_info=True)
 
 
-def latest_run(db: Session) -> DiscoveryRun | None:
-    return db.query(DiscoveryRun).order_by(DiscoveryRun.id.desc()).first()
+def latest_run(db: Session, workspace: str = workspaces.DEFAULT_WORKSPACE) -> DiscoveryRun | None:
+    return db.query(DiscoveryRun).filter(DiscoveryRun.workspace == workspace).order_by(DiscoveryRun.id.desc()).first()
 
 
 # --- optional background scheduler (AUTO_SCRAPE_MINUTES) ---
 
 
-def run_scheduled_scrape() -> dict:
-    """One full unattended scrape (collect + generate) in the calling thread."""
+def run_scheduled_scrape(workspace: str = workspaces.DEFAULT_WORKSPACE) -> dict:
+    """One full unattended scrape (collect + generate) of one workspace in the calling thread."""
     with SessionLocal() as db:
-        started = start_run(db, trigger="auto")
+        started = start_run(db, trigger="auto", workspace=workspace)
     if started["run"]["status"] == "generating":
-        finish_run(started["run"]["id"], started["item_ids"], started["x_reads"], trigger="auto")
+        finish_run(started["run"]["id"], started["item_ids"], started["x_reads"], trigger="auto", workspace=workspace)
     return started["run"]
 
 
 def _scheduler_loop(minutes: int) -> None:
     time.sleep(30)  # first run shortly after startup so topics are waiting; then every `minutes`
     while True:
-        try:
-            run_scheduled_scrape()
-        except Exception:  # noqa: BLE001
-            log.warning("scheduled discovery scrape failed", exc_info=True)
+        for workspace in workspaces.SCRAPED_WORKSPACES:
+            try:
+                run_scheduled_scrape(workspace)
+            except Exception:  # noqa: BLE001
+                log.warning("scheduled discovery scrape failed for %s", workspace, exc_info=True)
         time.sleep(minutes * 60)
 
 

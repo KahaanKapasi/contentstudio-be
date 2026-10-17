@@ -28,6 +28,7 @@ class TopicCandidateOut(BaseModel):
     suitable_for: str
     status: str
     created_at: datetime
+    workspace: str = "footonomy"
 
 
 class TopicStatusUpdate(BaseModel):

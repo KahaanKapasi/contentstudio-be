@@ -27,8 +27,8 @@ def source(name, *texts, ok=True, error=None):
 @pytest.fixture
 def stub_sources(monkeypatch):
     def _stub(rss_results, twitter_result=None, instagram_result=None):
-        monkeypatch.setattr(discovery.rss, "fetch_all_feeds", lambda: rss_results)
-        monkeypatch.setattr(discovery.twitter, "fetch_topic", lambda: twitter_result or source("twitter", ok=False, error="off"))
+        monkeypatch.setattr(discovery.rss, "fetch_all_feeds", lambda *a, **k: rss_results)
+        monkeypatch.setattr(discovery.twitter, "fetch_topic", lambda *a, **k: twitter_result or source("twitter", ok=False, error="off"))
         monkeypatch.setattr(discovery.instagram, "fetch_topic", lambda: instagram_result or source("instagram", ok=False, error="off"))
 
     return _stub

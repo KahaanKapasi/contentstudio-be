@@ -104,8 +104,8 @@ def test_instagram_refresh_is_logged_as_free(client, db, monkeypatch):
 def test_discovery_scrape_is_logged_once_with_gemini_and_not_double_counted(client, db, configure_gemini, monkeypatch):
     from tests.test_discovery import source
 
-    monkeypatch.setattr(discovery.rss, "fetch_all_feeds", lambda: [source("bbc", "News A")])
-    monkeypatch.setattr(discovery.twitter, "fetch_topic", lambda: source("twitter", ok=False, error="off"))
+    monkeypatch.setattr(discovery.rss, "fetch_all_feeds", lambda *a, **k: [source("bbc", "News A")])
+    monkeypatch.setattr(discovery.twitter, "fetch_topic", lambda *a, **k: source("twitter", ok=False, error="off"))
     monkeypatch.setattr(discovery.instagram, "fetch_topic", lambda: source("instagram", ok=False, error="off"))
 
     def fake_json(prompt, **kw):

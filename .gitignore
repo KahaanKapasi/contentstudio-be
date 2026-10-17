@@ -12,3 +12,5 @@ storage/videos/*
 storage/videos/*
 storage/projects/*
 storage/cache/*
+storage/genjutsu/
+storage/cache/
