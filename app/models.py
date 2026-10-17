@@ -267,3 +267,26 @@ class CostEvent(Base):
     actual_usd: Mapped[float] = mapped_column(Float, nullable=True)
     details: Mapped[str] = mapped_column(Text, nullable=True)  # JSON
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, index=True)
+
+
+class GenjutsuJob(Base):
+    """One Higgsfield Genjutsu motion-transfer job: an uploaded video + 1-8 reference photos -> the same motion with
+    the photographed people. Inputs live in storage/genjutsu/<id>/; provider_* lets a restarted server resume polling."""
+
+    __tablename__ = "genjutsu_jobs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    prompt: Mapped[str] = mapped_column(Text, nullable=True)
+    resolution: Mapped[str] = mapped_column(String, nullable=False)  # 480p, 720p, 1080p
+    status: Mapped[str] = mapped_column(String, default="queued")  # queued, running, succeeded, failed, moderated, canceled
+    error: Mapped[str] = mapped_column(Text, nullable=True)
+    request_id: Mapped[str] = mapped_column(String, nullable=True)  # Higgsfield request id
+    video_name: Mapped[str] = mapped_column(String, nullable=True)  # original upload name, for display
+    image_count: Mapped[int] = mapped_column(Integer, default=0)
+    input_seconds: Mapped[float] = mapped_column(Float, nullable=True)  # source video length
+    billed_seconds: Mapped[int] = mapped_column(Integer, nullable=True)  # ceil(input), max 30
+    est_cost_usd: Mapped[float] = mapped_column(Float, nullable=True)
+    local_path: Mapped[str] = mapped_column(String, nullable=True)  # output.mp4 inside the job folder
+    video_url: Mapped[str] = mapped_column(String, nullable=True)  # public hosted copy (Cloudinary), if configured
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    completed_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)

@@ -219,3 +219,9 @@ def generation_file(generation_id: int, db: Session = Depends(get_db)):
     if gen.video_url:
         return RedirectResponse(gen.video_url)
     raise HTTPException(status_code=404, detail="No video file for this generation")
+
+
+# Genjutsu motion transfer lives under /api/video/genjutsu (same access gate as the rest of /api/video).
+from app.routers import genjutsu as _genjutsu  # noqa: E402
+
+router.include_router(_genjutsu.router)

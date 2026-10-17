@@ -23,6 +23,7 @@ GEMINI_URL = "https://ai.google.dev/gemini-api/docs/pricing"
 X_URL = "https://docs.x.com/x-api/getting-started/pricing"
 MUAPI_URL = "https://muapi.ai/pricing"
 HIGGSFIELD_URL = "https://docs.higgsfield.ai"
+GENJUTSU_URL = "https://console.higgsfield.ai/models/higgsfield/genjutsu/motion-transfer/v1.0"
 VERIFIED = "2026-10-09"
 HIKE = date(2027, 1, 1)  # Gemini text / TTS / grounding price change
 
@@ -81,6 +82,10 @@ PRICES: tuple[Price, ...] = (
     _p("muapi.kling_v3_std_motion_control", "muapi", "second", 0.10, "https://muapi.ai/playground/kling-v3.0-std-motion-control", note="Official page, undated."),
     _p("muapi.default", "muapi", "second", None, MUAPI_URL, "unknown", low=0.05, high=0.40, note="Per-model prices are not published in an API; range is a guess."),
     _p("higgsfield.default", "higgsfield", "second", None, HIGGSFIELD_URL, "unknown", low=0.04, high=0.30, note="Billed in credits, visible only in the console; range is a guess."),
+    # Genjutsu motion transfer: billed per second of INPUT video, rounded up to a whole second (video is capped at 30 s).
+    _p("higgsfield.genjutsu.480p", "higgsfield", "second", 0.318, GENJUTSU_URL, note="Per second of input video, rounded up; max 30 s.", verified="2026-10-17"),
+    _p("higgsfield.genjutsu.720p", "higgsfield", "second", 0.681, GENJUTSU_URL, note="Per second of input video, rounded up; max 30 s.", verified="2026-10-17"),
+    _p("higgsfield.genjutsu.1080p", "higgsfield", "second", 1.632, GENJUTSU_URL, note="Per second of input video, rounded up; max 30 s.", verified="2026-10-17"),
     # --- X API (pay per use) ---
     _p("x.post_read", "x", "resource", 0.005, X_URL, note="Official page, undated."),
     _p("x.user_lookup", "x", "resource", 0.010, X_URL),

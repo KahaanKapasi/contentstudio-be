@@ -46,6 +46,8 @@ class Settings(BaseSettings):
 
     hf_api_key_id: str = ""
     hf_api_key_secret: str = ""
+    # Official-SDK style credential "key-id:key-secret". Either this or the separate id/secret pair above works.
+    hf_key: str = ""
 
     muapi_api_key: str = ""
 

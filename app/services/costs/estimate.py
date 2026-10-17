@@ -7,6 +7,8 @@ These are estimates from the versioned price table in prices.py, never billing t
 
 from __future__ import annotations
 
+import math
+
 import re
 from datetime import date
 
@@ -27,6 +29,7 @@ ACTIONS = (
     "video.prompt_improve",
     "video.generation",
     "studio.project",
+    "genjutsu.motion_transfer",
     "posts.render_background",
     "posts.render_preview",
     "posts.upload_to_host",
@@ -49,6 +52,7 @@ SERVICE_BY_ACTION = {
     "video.prompt_improve": "gemini",
     "video.generation": "video",
     "studio.project": "studio",
+    "genjutsu.motion_transfer": "higgsfield",
     "posts.match_scrape": "x",
     "dashboard.twitter_refresh": "x",
     "dashboard.twitter_suggestions": "gemini",
@@ -249,6 +253,32 @@ def _video_generation(b: _Builder, p: dict):
     b.notes.append("Estimate assumes the clip succeeds; Veo outputs are deleted by Google after ~2 days.")
 
 
+GENJUTSU_MIN_S, GENJUTSU_MAX_S = 4, 30
+
+
+def _genjutsu(b: _Builder, p: dict):
+    """Per second of INPUT video at the chosen resolution, rounded up; the API trims video to 30 s.
+    Without a known duration the range spans the minimum (4 s) to the maximum (30 s)."""
+    resolution = str(p.get("resolution") or "720p")
+    if resolution not in ("480p", "720p", "1080p"):
+        raise ValueError(f"Unsupported resolution '{resolution}' (use 480p, 720p or 1080p).")
+    raw = p.get("duration_seconds")
+    try:
+        known = float(raw) if raw not in (None, "") else None
+    except (TypeError, ValueError):
+        known = None
+    if known and known > 0:
+        seconds = min(GENJUTSU_MAX_S, max(1, math.ceil(known - 1e-9)))
+        low = high = seconds
+        label = f"Genjutsu motion transfer {resolution}, {seconds}s of input video"
+    else:
+        low, high = GENJUTSU_MIN_S, GENJUTSU_MAX_S
+        label = f"Genjutsu motion transfer {resolution}, {low}-{high}s of input video"
+        b.notes.append("Pick a video to see the exact cost.")
+    b.row(label, f"higgsfield.genjutsu.{resolution}", low, high)
+    b.notes.append("Billed per second of the input video, rounded up. Videos over 30 s are trimmed to 30 s.")
+
+
 def _posts_match_scrape(b: _Builder, p: dict):
     b.row("X recent-search reads", "x.post_read", 10, 40)
     b.gemini_text((300 + 10 * 70, 300 + 40 * 70), (350, 700), think=(0, 1500))
@@ -378,6 +408,7 @@ _PAID = {
     "video.prompt_improve": _prompt_improve,
     "video.generation": _video_generation,
     "studio.project": _studio_project,
+    "genjutsu.motion_transfer": _genjutsu,
     "posts.match_scrape": _posts_match_scrape,
     "dashboard.twitter_refresh": _twitter_refresh,
     "dashboard.twitter_suggestions": _twitter_suggestions,
