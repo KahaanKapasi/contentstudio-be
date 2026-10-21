@@ -14,7 +14,7 @@ from app.models import Template
 from app import auth
 from app.auth import require_access
 from app.migrations import run_migrations
-from app.routers import articles, costs, dashboard, discovery, posts, studio, video
+from app.routers import articles, costs, dashboard, discovery, footonomy, posts, studio, video
 from app.services import discovery as discovery_service, ig_token, image_processing
 
 app = FastAPI(title="Content Studio API")
@@ -27,7 +27,7 @@ app.add_middleware(
 )
 
 app.include_router(auth.router)
-for _router in (discovery.router, articles.router, posts.router, dashboard.router, video.router, studio.router, costs.router):
+for _router in (discovery.router, articles.router, posts.router, dashboard.router, video.router, studio.router, costs.router, footonomy.router):
     app.include_router(_router, dependencies=[Depends(require_access)])
 
 # The 3 fixed templates per 04_Posts_Carousel_Studio.md. A 4th template was

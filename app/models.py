@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, LargeBinary, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
@@ -194,6 +194,21 @@ class PostDraft(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
 
+class CustomFont(Base):
+    """A font the user uploaded in the Posts editor (TTF / OTF / WOFF / WOFF2). The bytes live in the row, not on
+    disk, so they survive hosts with an ephemeral filesystem and follow the user to other devices."""
+
+    __tablename__ = "custom_fonts"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    family: Mapped[str] = mapped_column(String, nullable=False)
+    format: Mapped[str] = mapped_column(String, nullable=False)  # ttf | otf | woff | woff2
+    size: Mapped[int] = mapped_column(Integer, nullable=False)
+    sha256: Mapped[str] = mapped_column(String, nullable=False, unique=True, index=True)
+    data: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+
 # --- Dashboard / Analytics ---
 
 
@@ -270,6 +285,25 @@ class CostEvent(Base):
     actual_usd: Mapped[float] = mapped_column(Float, nullable=True)
     details: Mapped[str] = mapped_column(Text, nullable=True)  # JSON
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, index=True)
+
+
+class FootonomySnapshot(Base):
+    """Point-in-time copy of Footonomy's headline numbers. Footonomy keeps no history of its own
+    operations metrics, so Studio records one every few minutes while the Footonomy tab is in use."""
+
+    __tablename__ = "footonomy_snapshots"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    captured_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, index=True)
+    total_users: Mapped[int] = mapped_column(Integer, nullable=True)
+    new_users_7d: Mapped[int] = mapped_column(Integer, nullable=True)
+    follows_total: Mapped[int] = mapped_column(Integer, nullable=True)
+    reactions_total: Mapped[int] = mapped_column(Integer, nullable=True)
+    requests_total: Mapped[int] = mapped_column(Integer, nullable=True)
+    errors_5xx_total: Mapped[int] = mapped_column(Integer, nullable=True)
+    p95_seconds: Mapped[float] = mapped_column(Float, nullable=True)
+    cache_hit_ratio: Mapped[float] = mapped_column(Float, nullable=True)
+    websocket_sessions: Mapped[int] = mapped_column(Integer, nullable=True)
 
 
 class GenjutsuJob(Base):

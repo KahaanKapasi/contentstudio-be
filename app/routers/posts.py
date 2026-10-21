@@ -1,12 +1,13 @@
+import hashlib
 import json
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models import PostDraft, Template
+from app.models import CustomFont, PostDraft, Template
 from app.schemas import PostDraftCreate, PostDraftOut, PostDraftUpdate, TemplateOut
 from app.services import getty_client, image_processing, match_day, media_hosting
 from app.services.costs import ledger
@@ -194,3 +195,73 @@ async def upload_to_host(image: UploadFile = File(...)):
     except MediaHostingNotConfigured as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     return {"url": url}
+
+
+# --- Custom fonts (Posts editor) ----------------------------------------------------------------------------------
+
+FONT_MAX_BYTES = 12 * 1024 * 1024
+FONT_FORMATS = {"ttf", "otf", "woff", "woff2"}
+
+
+def _sniff_font(data: bytes) -> str | None:
+    """Format from the file's magic bytes, so a renamed .png can't be stored as a font."""
+    head = data[:4]
+    if head == b"wOFF":
+        return "woff"
+    if head == b"wOF2":
+        return "woff2"
+    if head == b"OTTO":
+        return "otf"
+    if head in (b"\x00\x01\x00\x00", b"true"):
+        return "ttf"
+    return None
+
+
+def _font_out(f: CustomFont) -> dict:
+    return {"id": f.id, "family": f.family, "format": f.format, "size": f.size, "sha256": f.sha256}
+
+
+@router.get("/fonts")
+def list_fonts(db: Session = Depends(get_db)):
+    return [_font_out(f) for f in db.query(CustomFont).order_by(CustomFont.created_at.desc()).all()]
+
+
+@router.post("/fonts")
+async def upload_font(font: UploadFile = File(...), family: str = Form(""), db: Session = Depends(get_db)):
+    data = await font.read()
+    ext = (font.filename or "").rsplit(".", 1)[-1].lower()
+    if ext not in FONT_FORMATS:
+        raise HTTPException(status_code=400, detail="Fonts must be TTF, OTF, WOFF or WOFF2 files")
+    if len(data) > FONT_MAX_BYTES:
+        raise HTTPException(status_code=413, detail="Font file is larger than 12 MB")
+    fmt = _sniff_font(data)
+    if not fmt:
+        raise HTTPException(status_code=400, detail="That file is not a valid font")
+    digest = hashlib.sha256(data).hexdigest()
+    existing = db.query(CustomFont).filter(CustomFont.sha256 == digest).first()
+    if existing:
+        return _font_out(existing)
+    name = (family or "").strip() or (font.filename or "Custom font").rsplit(".", 1)[0]
+    row = CustomFont(family=name[:120], format=fmt, size=len(data), sha256=digest, data=data)
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return _font_out(row)
+
+
+@router.get("/fonts/{font_id}/file")
+def font_file(font_id: int, db: Session = Depends(get_db)):
+    row = db.get(CustomFont, font_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="Font not found")
+    return Response(content=row.data, media_type=f"font/{row.format}")
+
+
+@router.delete("/fonts/{font_id}")
+def delete_font(font_id: int, db: Session = Depends(get_db)):
+    row = db.get(CustomFont, font_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="Font not found")
+    db.delete(row)
+    db.commit()
+    return {"ok": True}

@@ -64,6 +64,11 @@ class Settings(BaseSettings):
 
     cloudinary_url: str = ""
 
+    # Footonomy admin API (the football app). Studio only ever calls out to it; Footonomy never calls Studio.
+    # URL is the app's private admin port (e.g. http://127.0.0.1:8082, or its Tailscale address). Empty token = integration off.
+    footonomy_admin_url: str = "http://127.0.0.1:8082"
+    footonomy_admin_token: str = ""
+
     # Cost awareness: optional JSON map of price id -> usd that overrides the built-in price table,
     # e.g. {"gemini.image.out": 0.08}. See app/services/costs/prices.py.
     price_overrides_json: str = ""

@@ -31,6 +31,7 @@ for _name in (
     "CLOUDINARY_URL",
     "GETTY_USERNAME",
     "GETTY_PASSWORD",
+    "FOOTONOMY_ADMIN_TOKEN",
 ):
     os.environ[_name] = ""
 
@@ -65,6 +66,7 @@ _SECRET_FIELDS = (
     "cloudinary_url",
     "getty_username",
     "getty_password",
+    "footonomy_admin_token",
 )
 
 
