@@ -26,6 +26,7 @@ ADDED_COLUMNS: dict[str, list[tuple[str, str]]] = {
     "scraped_items": [("content_hash", "VARCHAR"), ("workspace", "VARCHAR DEFAULT 'footonomy'")],
     "topic_candidates": [("workspace", "VARCHAR DEFAULT 'footonomy'")],
     "discovery_runs": [("workspace", "VARCHAR DEFAULT 'footonomy'")],
+    "genjutsu_jobs": [("heartbeat_at", "TIMESTAMP")],
 }
 _IG_TABLES = ("video_generations", "video_projects")
 

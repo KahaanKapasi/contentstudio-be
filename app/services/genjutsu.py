@@ -21,6 +21,7 @@ from pathlib import Path
 
 import httpx
 from PIL import Image, ImageOps
+from sqlalchemy import update
 from sqlalchemy.orm import Session
 
 from app.config import STORAGE_DIR, settings
@@ -42,6 +43,7 @@ MAX_IMAGE_BYTES = 30 * 1024 * 1024
 MAX_IMAGE_SIDE = 2048
 TRANSCODE_ABOVE_BYTES = 80 * 1024 * 1024  # big/odd-format sources are re-encoded before upload
 POLL_INTERVAL_S = 5.0
+HEARTBEAT_STALE_S = 45.0  # a job whose heartbeat is older than this has nobody polling it (any server, any machine)
 TIMEOUT_S = 30 * 60
 MAX_STATUS_ERRORS = 6  # consecutive transient failures while polling before giving up
 
@@ -233,8 +235,24 @@ def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def _claim(db: Session, job: GenjutsuJob, new_status: str) -> bool:
+    """Atomically move an ACTIVE job to a terminal status. Render, this Mac and the Latitude all share one database,
+    so two servers can finish the same job; only the one whose UPDATE matches a row proceeds (and logs the cost)."""
+    result = db.execute(update(GenjutsuJob).where(GenjutsuJob.id == job.id, GenjutsuJob.status.in_(ACTIVE)).values(status=new_status))
+    db.commit()
+    db.refresh(job)
+    return result.rowcount == 1
+
+
+def _beat(db: Session, job: GenjutsuJob) -> None:
+    job.heartbeat_at = _now()
+    db.commit()
+
+
 def _fail(db: Session, job: GenjutsuJob, status: str, message: str, *, spent: float | None = 0.0) -> None:
-    job.status, job.error, job.completed_at = status, message, _now()
+    if not _claim(db, job, status):
+        return  # another server already finished this job
+    job.error, job.completed_at = message, _now()
     db.commit()
     _log_cost(job, spent)
 
@@ -313,6 +331,7 @@ def run_job(job_id: int) -> None:
 def _drive(db: Session, job: GenjutsuJob) -> None:
     sdk = _sdk()
     job.status = "running"
+    job.heartbeat_at = _now()
     db.commit()
     if not job.request_id:
         video = _prepare_video(job)
@@ -331,6 +350,7 @@ def _poll(db: Session, job: GenjutsuJob, sdk) -> None:
     created = job.created_at if job.created_at.tzinfo else job.created_at.replace(tzinfo=timezone.utc)
     errors = 0
     while True:
+        _beat(db, job)
         try:
             status = sdk.status(request_id=job.request_id)
             errors = 0
@@ -383,9 +403,11 @@ def _succeed(db: Session, job: GenjutsuJob, sdk) -> None:
         job.video_url = url
         return _fail(db, job, "failed", f"The video was generated but downloading it failed ({friendly_error(exc)}). Its link: {url}", spent=job.est_cost_usd)
     # Finish the job FIRST: the file is on disk and the user is waiting. The optional durable copy happens afterwards.
+    if not _claim(db, job, "succeeded"):
+        return  # another server finished it first (and logged the cost)
     job.local_path = "output.mp4"
     job.video_url = url  # Higgsfield's own link (kept for a while) until a durable copy exists
-    job.status, job.error, job.completed_at = "succeeded", None, _now()
+    job.error, job.completed_at = None, _now()
     db.commit()
     _log_cost(job, job.est_cost_usd)
     threading.Thread(target=_attach_hosted_copy, args=(job.id, dest), daemon=True).start()
@@ -434,10 +456,16 @@ def reconcile(db: Session, job: GenjutsuJob) -> GenjutsuJob:
     with _inflight_lock:
         if job.id in _inflight:
             return job
+    beat = job.heartbeat_at
+    if beat is not None:
+        beat = beat if beat.tzinfo else beat.replace(tzinfo=timezone.utc)
+        if (_now() - beat).total_seconds() < HEARTBEAT_STALE_S:
+            return job  # some server (maybe another machine) is polling it right now: hands off
     created = job.created_at if job.created_at.tzinfo else job.created_at.replace(tzinfo=timezone.utc)
     age = (_now() - created).total_seconds()
     if not job.request_id and age > 180:
         _fail(db, job, "failed", "The server restarted before this job was sent to Higgsfield, so nothing was billed. Retry it.", spent=0.0)
     elif job.request_id or age > 20:
         threading.Thread(target=run_job, args=(job.id,), daemon=True).start()
+        db.refresh(job)  # the resume runs in its own session; don't hand the caller a stale row
     return job
