@@ -23,6 +23,7 @@ GEMINI_URL = "https://ai.google.dev/gemini-api/docs/pricing"
 X_URL = "https://docs.x.com/x-api/getting-started/pricing"
 MUAPI_URL = "https://muapi.ai/pricing"
 HIGGSFIELD_URL = "https://docs.higgsfield.ai"
+GENJUTSU_LIGHT_URL = "https://open.higgsfield.ai/models/higgsfield/genjutsu-light/motion-transfer/v1.0/playground"
 GENJUTSU_URL = "https://console.higgsfield.ai/models/higgsfield/genjutsu/motion-transfer/v1.0"
 VERIFIED = "2026-10-09"
 HIKE = date(2027, 1, 1)  # Gemini text / TTS / grounding price change
@@ -85,6 +86,9 @@ PRICES: tuple[Price, ...] = (
     # Genjutsu motion transfer: billed per second of INPUT video, rounded up to a whole second (video is capped at 30 s).
     _p("higgsfield.genjutsu.480p", "higgsfield", "second", 0.318, GENJUTSU_URL, note="Per second of input video, rounded up; max 30 s.", verified="2026-10-17"),
     _p("higgsfield.genjutsu.720p", "higgsfield", "second", 0.681, GENJUTSU_URL, note="Per second of input video, rounded up; max 30 s.", verified="2026-10-17"),
+    _p("higgsfield.genjutsu_light.480p", "higgsfield", "second", 0.05, GENJUTSU_LIGHT_URL, "third-party", note="Per billed second = output seconds + input-video seconds (so about 2x the clip length); source trimmed to 15 s. Higgsfield's pages disagree on this price; confirm on your first run.", verified="2026-10-26"),
+    _p("higgsfield.genjutsu_light.720p", "higgsfield", "second", 0.10, GENJUTSU_LIGHT_URL, "third-party", note="Per billed second = output seconds + input-video seconds (so about 2x the clip length); source trimmed to 15 s. Higgsfield's pages disagree on this price; confirm on your first run.", verified="2026-10-26"),
+    _p("higgsfield.genjutsu_light.1080p", "higgsfield", "second", 0.20, GENJUTSU_LIGHT_URL, "third-party", note="Per billed second = output seconds + input-video seconds (so about 2x the clip length); source trimmed to 15 s. Higgsfield's pages disagree on this price; confirm on your first run.", verified="2026-10-26"),
     _p("higgsfield.genjutsu.1080p", "higgsfield", "second", 1.632, GENJUTSU_URL, note="Per second of input video, rounded up; max 30 s.", verified="2026-10-17"),
     # --- X API (pay per use) ---
     _p("x.post_read", "x", "resource", 0.005, X_URL, note="Official page, undated."),

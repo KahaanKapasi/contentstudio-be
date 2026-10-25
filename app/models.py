@@ -358,3 +358,4 @@ class GenjutsuJob(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
     completed_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
     heartbeat_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)  # last time ANY server polled this job
+    model: Mapped[str] = mapped_column(String, default="genjutsu")  # genjutsu | light

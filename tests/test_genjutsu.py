@@ -368,3 +368,43 @@ def test_a_hung_backup_upload_never_holds_back_the_finished_video(client, env, m
 
         _t.sleep(0.1)
     assert client.get(f"{URL}/jobs/{job['id']}").json()["video_url"] == "https://res.cloudinary.example/genjutsu.mp4"
+
+
+# --- model selector: Genjutsu vs Genjutsu Light ---
+
+
+def test_light_bills_output_plus_input_and_is_cheaper(env):
+    # 10 s source: Genjutsu bills 10 s; Light bills 10 s out + 10 s in at its own rate.
+    assert genjutsu.billed_seconds(10, "genjutsu") == 10 and genjutsu.billed_seconds(10, "light") == 20
+    assert genjutsu.billed_seconds(30, "light") == 45  # output capped at 15, input counted untrimmed
+    assert genjutsu.estimate_cost(10, "720p", "light") < genjutsu.estimate_cost(10, "720p", "genjutsu")
+
+
+def test_estimator_agrees_with_the_service_for_both_models(env):
+    for model in ("genjutsu", "light"):
+        for seconds in (4.0, 9.2, 15.0, 22.5, 30.0, 45.0):
+            quote = estimate.estimate("genjutsu.motion_transfer", {"duration_seconds": seconds, "resolution": "720p", "model": model})
+            assert quote["high_usd"] == pytest.approx(genjutsu.estimate_cost(seconds, "720p", model), abs=0.01)
+
+
+def test_light_job_submits_the_light_model(client, env, monkeypatch):
+    sdk = use_sdk(monkeypatch, FakeSDK())
+    video = make_video(env, seconds=5)
+    cost = genjutsu.estimate_cost(5, "480p", "light")
+    resp = client.post(
+        f"{URL}/jobs", files=[("video", ("clip.mp4", video, "video/mp4")), ("images", ("a.png", png(), "image/png"))],
+        data={"prompt": "", "resolution": "480p", "model": "light", "confirm_cost_usd": str(cost)},
+    )
+    assert resp.status_code == 200 and resp.json()["model"] == "light"
+    assert sdk.submitted[0] == "higgsfield/genjutsu-light/motion-transfer/v1.0"
+    assert client.get(f"{URL}/status").json()["models"][1]["id"] == "light"
+
+
+def test_unknown_model_is_rejected(client, env, monkeypatch):
+    use_sdk(monkeypatch, FakeSDK())
+    video = make_video(env, seconds=5)
+    resp = client.post(
+        f"{URL}/jobs", files=[("video", ("clip.mp4", video, "video/mp4")), ("images", ("a.png", png(), "image/png"))],
+        data={"prompt": "", "resolution": "480p", "model": "turbo", "confirm_cost_usd": "50"},
+    )
+    assert resp.status_code == 400

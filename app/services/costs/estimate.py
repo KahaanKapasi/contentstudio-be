@@ -254,11 +254,26 @@ def _video_generation(b: _Builder, p: dict):
 
 
 GENJUTSU_MIN_S, GENJUTSU_MAX_S = 4, 30
+LIGHT_OUT_MAX_S = 15  # Genjutsu Light only reads the first 15 s of the source
+
+
+def genjutsu_billed_seconds(model: str, duration: float) -> int:
+    """Billed seconds for a source of `duration` s. Genjutsu: the input, rounded up, capped at 30. Light: output
+    (capped at 15) plus input; the input is counted untrimmed (capped at 30) because Higgsfield doesn't say which it bills."""
+    whole = max(1, math.ceil(duration - 1e-9))
+    if model == "light":
+        return min(LIGHT_OUT_MAX_S, whole) + min(GENJUTSU_MAX_S, whole)
+    return min(GENJUTSU_MAX_S, whole)
 
 
 def _genjutsu(b: _Builder, p: dict):
     """Per second of INPUT video at the chosen resolution, rounded up; the API trims video to 30 s.
     Without a known duration the range spans the minimum (4 s) to the maximum (30 s)."""
+    model = str(p.get("model") or "genjutsu")
+    if model not in ("genjutsu", "light"):
+        raise ValueError(f"Unsupported model '{model}' (use genjutsu or light).")
+    name = "Genjutsu Light" if model == "light" else "Genjutsu"
+    price_id = "higgsfield.genjutsu_light" if model == "light" else "higgsfield.genjutsu"
     resolution = str(p.get("resolution") or "720p")
     if resolution not in ("480p", "720p", "1080p"):
         raise ValueError(f"Unsupported resolution '{resolution}' (use 480p, 720p or 1080p).")
@@ -268,15 +283,18 @@ def _genjutsu(b: _Builder, p: dict):
     except (TypeError, ValueError):
         known = None
     if known and known > 0:
-        seconds = min(GENJUTSU_MAX_S, max(1, math.ceil(known - 1e-9)))
+        seconds = genjutsu_billed_seconds(model, known)
         low = high = seconds
-        label = f"Genjutsu motion transfer {resolution}, {seconds}s of input video"
+        label = f"{name} motion transfer {resolution}, {seconds} billed s"
     else:
-        low, high = GENJUTSU_MIN_S, GENJUTSU_MAX_S
-        label = f"Genjutsu motion transfer {resolution}, {low}-{high}s of input video"
+        low, high = genjutsu_billed_seconds(model, GENJUTSU_MIN_S), genjutsu_billed_seconds(model, GENJUTSU_MAX_S)
+        label = f"{name} motion transfer {resolution}, {low}-{high} billed s"
         b.notes.append("Pick a video to see the exact cost.")
-    b.row(label, f"higgsfield.genjutsu.{resolution}", low, high)
-    b.notes.append("Billed per second of the input video, rounded up. Videos over 30 s are trimmed to 30 s.")
+    b.row(label, f"{price_id}.{resolution}", low, high)
+    if model == "light":
+        b.notes.append("Light bills output seconds plus input seconds, and only reads the first 15 s. Its price is unconfirmed: Higgsfield's pages disagree, so check the first receipt.")
+    else:
+        b.notes.append("Billed per second of the input video, rounded up. Videos over 30 s are trimmed to 30 s.")
 
 
 def _posts_match_scrape(b: _Builder, p: dict):

@@ -24,6 +24,7 @@ class JobOut(BaseModel):
     id: int
     prompt: str | None
     resolution: str
+    model: str
     status: str  # queued | running | succeeded | failed | moderated | canceled
     error: str | None
     video_name: str | None
@@ -39,7 +40,7 @@ class JobOut(BaseModel):
 
 def _out(job: GenjutsuJob) -> JobOut:
     return JobOut(
-        id=job.id, prompt=job.prompt, resolution=job.resolution, status=job.status, error=job.error,
+        id=job.id, prompt=job.prompt, resolution=job.resolution, model=job.model or genjutsu.DEFAULT_MODEL, status=job.status, error=job.error,
         video_name=job.video_name, image_count=job.image_count or 0, input_seconds=job.input_seconds,
         billed_seconds=job.billed_seconds, est_cost_usd=job.est_cost_usd, has_file=genjutsu.output_file(job) is not None,
         video_url=job.video_url, created_at=job.created_at, completed_at=job.completed_at,
@@ -83,6 +84,14 @@ def status():
         "configured": not keys,
         "missing_keys": keys,
         "model": genjutsu.MODEL,
+        "default_model": genjutsu.DEFAULT_MODEL,
+        "models": [
+            {
+                "id": key, "label": m["label"], "summary": m["summary"], "max_source_seconds": m["max_source_s"],
+                "resolutions": [{"id": r, "price_per_second_usd": prices.usd(f"{m['price']}.{r}")} for r in genjutsu.RESOLUTIONS],
+            }
+            for key, m in genjutsu.MODELS.items()
+        ],
         "resolutions": [{"id": r, "price_per_second_usd": prices.usd(f"higgsfield.genjutsu.{r}")} for r in genjutsu.RESOLUTIONS],
         "limits": {"min_video_seconds": genjutsu.MIN_VIDEO_S, "max_billed_seconds": genjutsu.MAX_BILLED_S, "max_images": genjutsu.MAX_IMAGES},
     }
@@ -95,6 +104,7 @@ async def create_job(
     images: list[UploadFile] = File(...),
     prompt: str = Form(""),
     resolution: str = Form("720p"),
+    model: str = Form(genjutsu.DEFAULT_MODEL),
     confirm_cost_usd: float = Form(...),
     db: Session = Depends(get_db),
 ):
@@ -108,7 +118,7 @@ async def create_job(
         try:
             job = await run_in_threadpool(
                 genjutsu.create_job, db, video_tmp=tmp, video_name=video.filename or "video", images=blobs,
-                prompt=prompt, resolution=resolution, confirm_cost_usd=confirm_cost_usd,
+                prompt=prompt, resolution=resolution, confirm_cost_usd=confirm_cost_usd, model=model,
             )
         except Exception as exc:  # noqa: BLE001 - mapped to the right HTTP status in _raise
             _raise(exc)

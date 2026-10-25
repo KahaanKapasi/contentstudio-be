@@ -33,7 +33,18 @@ from app.services.studio.kit import ffmpeg
 log = logging.getLogger(__name__)
 
 GENJUTSU_DIR = STORAGE_DIR / "genjutsu"
-MODEL = "higgsfield/genjutsu/motion-transfer/v1.0"
+MODELS = {
+    "genjutsu": {
+        "id": "higgsfield/genjutsu/motion-transfer/v1.0", "label": "Genjutsu", "price": "higgsfield.genjutsu",
+        "max_source_s": 30, "summary": "Full quality. Up to 30 s of source video, billed per input second.",
+    },
+    "light": {
+        "id": "higgsfield/genjutsu-light/motion-transfer/v1.0", "label": "Genjutsu Light", "price": "higgsfield.genjutsu_light",
+        "max_source_s": 15, "summary": "About 3x cheaper, lower fidelity. Only the first 15 s of the source is used; the source audio is kept.",
+    },
+}
+DEFAULT_MODEL = "genjutsu"
+MODEL = MODELS[DEFAULT_MODEL]["id"]  # kept for older callers
 RESOLUTIONS = ("480p", "720p", "1080p")
 MIN_VIDEO_S = 4.0  # the API rejects shorter source videos
 MAX_BILLED_S = 30  # longer videos are trimmed to 30 s by the API
@@ -108,12 +119,16 @@ def friendly_error(exc: BaseException | str) -> str:
 # --- cost ---
 
 
-def billed_seconds(duration: float) -> int:
-    return min(MAX_BILLED_S, max(1, math.ceil(duration - 1e-9)))
+def billed_seconds(duration: float, model: str = DEFAULT_MODEL) -> int:
+    """Genjutsu: input seconds rounded up (max 30). Light: output (max 15) + input seconds, input counted untrimmed."""
+    whole = max(1, math.ceil(duration - 1e-9))
+    if model == "light":
+        return min(MODELS["light"]["max_source_s"], whole) + min(MAX_BILLED_S, whole)
+    return min(MAX_BILLED_S, whole)
 
 
-def estimate_cost(duration: float, resolution: str) -> float:
-    return round(billed_seconds(duration) * prices.usd(f"higgsfield.genjutsu.{resolution}"), 4)
+def estimate_cost(duration: float, resolution: str, model: str = DEFAULT_MODEL) -> float:
+    return round(billed_seconds(duration, model) * prices.usd(f"{MODELS[model]['price']}.{resolution}"), 4)
 
 
 # --- input handling ---
@@ -160,11 +175,14 @@ def create_job(
     prompt: str,
     resolution: str,
     confirm_cost_usd: float,
+    model: str = DEFAULT_MODEL,
 ) -> GenjutsuJob:
     """Validates everything, then creates the row and moves the inputs into the job folder. Raises
     GenjutsuInputError (400), GenjutsuNotConfigured (503) or CostChanged (409); nothing is created on failure."""
     if not credentials():
         raise GenjutsuNotConfigured("Higgsfield is not configured: set HF_KEY=<key-id>:<key-secret> in .env.")
+    if model not in MODELS:
+        raise GenjutsuInputError(f"Model must be one of {', '.join(MODELS)}.")
     if resolution not in RESOLUTIONS:
         raise GenjutsuInputError(f"Resolution must be one of {', '.join(RESOLUTIONS)}.")
     prompt = (prompt or "").strip()
@@ -175,13 +193,13 @@ def create_job(
     prepared = [prepare_image(data, name) for name, data in images]
     duration = probe_video(video_tmp, video_name)
 
-    seconds = billed_seconds(duration)
-    cost = estimate_cost(duration, resolution)
+    seconds = billed_seconds(duration, model)
+    cost = estimate_cost(duration, resolution, model)
     if cost > float(confirm_cost_usd) + 0.01:
         raise CostChanged(float(confirm_cost_usd), cost)
 
     job = GenjutsuJob(
-        prompt=prompt, resolution=resolution, status="queued", video_name=video_name[:200], image_count=len(prepared),
+        prompt=prompt, resolution=resolution, model=model, status="queued", video_name=video_name[:200], image_count=len(prepared),
         input_seconds=round(duration, 2), billed_seconds=seconds, est_cost_usd=cost,
     )
     db.add(job)
@@ -209,7 +227,7 @@ def clone_inputs(db: Session, source: GenjutsuJob, confirm_cost_usd: float) -> G
         return create_job(
             db, video_tmp=tmp, video_name=source.video_name or inputs[0].name,
             images=[(p.name, p.read_bytes()) for p in refs], prompt=source.prompt or "",
-            resolution=source.resolution, confirm_cost_usd=confirm_cost_usd,
+            resolution=source.resolution, confirm_cost_usd=confirm_cost_usd, model=source.model or DEFAULT_MODEL,
         )
     finally:
         tmp.unlink(missing_ok=True)
@@ -260,7 +278,7 @@ def _fail(db: Session, job: GenjutsuJob, status: str, message: str, *, spent: fl
 def _log_cost(job: GenjutsuJob, actual: float | None) -> None:
     ledger.log_event(
         "genjutsu.motion_transfer",
-        {"duration_seconds": job.input_seconds, "resolution": job.resolution},
+        {"duration_seconds": job.input_seconds, "resolution": job.resolution, "model": job.model or DEFAULT_MODEL},
         ref_type="genjutsu", ref_id=job.id, actual_usd=actual,
         details={"status": job.status, "billed_seconds": job.billed_seconds, "request_id": job.request_id},
     )
@@ -276,7 +294,7 @@ def _prepare_video(job: GenjutsuJob) -> Path:
         return src
     dst = folder / "prepared.mp4"
     ffmpeg.run(
-        ["-i", src, "-t", str(MAX_BILLED_S), "-vf", "scale=-2:'min(1080,ih)'", "-c:v", "libx264", "-preset", "veryfast",
+        ["-i", src, "-t", str(MODELS.get(job.model or DEFAULT_MODEL, MODELS[DEFAULT_MODEL])["max_source_s"]), "-vf", "scale=-2:'min(1080,ih)'", "-c:v", "libx264", "-preset", "veryfast",
          "-crf", "23", "-pix_fmt", "yuv420p", "-c:a", "aac", "-movflags", "+faststart", dst],
         timeout=900,
     )
@@ -338,7 +356,7 @@ def _drive(db: Session, job: GenjutsuJob) -> None:
         video_url = sdk.upload_file(str(video))
         image_urls = [sdk.upload_file(str(p)) for p in sorted(job_dir(job.id).glob("ref*.jpg"))]
         arguments = {"prompt": job.prompt or "", "video_url": video_url, "image_urls": image_urls, "resolution": job.resolution}
-        controller = sdk.submit(MODEL, arguments=arguments)
+        controller = sdk.submit(MODELS.get(job.model or DEFAULT_MODEL, MODELS[DEFAULT_MODEL])["id"], arguments=arguments)
         job.request_id = controller.request_id
         db.commit()  # persisted before polling: a restart resumes instead of resubmitting (and paying again)
     _poll(db, job, sdk)
