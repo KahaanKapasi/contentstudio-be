@@ -121,7 +121,8 @@ async def create_job(
 @router.get("/jobs", response_model=list[JobOut])
 def list_jobs(limit: int = 50, db: Session = Depends(get_db)):
     jobs = db.query(GenjutsuJob).order_by(GenjutsuJob.id.desc()).limit(max(1, min(limit, 200))).all()
-    return [_out(j) for j in jobs]
+    # Resume stuck rows here: the UI only polls this list, never GET /jobs/{id}.
+    return [_out(genjutsu.reconcile(db, j)) for j in jobs]
 
 
 @router.get("/jobs/{job_id}", response_model=JobOut)

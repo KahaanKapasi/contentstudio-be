@@ -18,6 +18,26 @@ class MediaHostingNotConfigured(RuntimeError):
     pass
 
 
+# Cloudinary's free plan rejects images larger than 10 MB. Checked before the round trip so the editor gets a clear 413.
+MAX_IMAGE_BYTES = 10 * 1024 * 1024
+
+
+def status() -> dict:
+    """Is image hosting usable? `missing` names exactly what to set (shown in the editor's publish / send-to-phone dialogs)."""
+    url = settings.cloudinary_url
+    if not url:
+        return {"configured": False, "missing": ["CLOUDINARY_URL"], "problem": "CLOUDINARY_URL is not set on the backend.", "max_image_bytes": MAX_IMAGE_BYTES}
+    parsed = urlparse(url)
+    if parsed.scheme != "cloudinary" or not (parsed.hostname and parsed.username and parsed.password):
+        return {
+            "configured": False,
+            "missing": ["CLOUDINARY_URL"],
+            "problem": "CLOUDINARY_URL is set but malformed. It must look like cloudinary://API_KEY:API_SECRET@CLOUD_NAME.",
+            "max_image_bytes": MAX_IMAGE_BYTES,
+        }
+    return {"configured": True, "missing": [], "problem": None, "max_image_bytes": MAX_IMAGE_BYTES}
+
+
 _configured = False
 
 

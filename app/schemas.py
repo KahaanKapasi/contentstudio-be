@@ -2,7 +2,7 @@ import json
 from datetime import datetime, timezone
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_serializer, field_validator
 
 
 def _parse_json_text(v: Any, default: Any):
@@ -355,3 +355,84 @@ class StudioProjectOut(BaseModel):
 class InstagramPublishRequest(BaseModel):
     caption: str = ""
     share_to_feed: bool = True
+
+
+# --- Notes (Posts editor + mobile Notes page) ---------------------------------------------------------------------
+
+NOTE_MAX_BULLETS = 300
+NOTE_MAX_TEXT = 2000
+
+
+def _as_utc(dt: datetime) -> datetime:
+    """SQLite hands datetimes back naive; they are all UTC, so say so (browsers read a bare ISO string as local time)."""
+    return dt.replace(tzinfo=timezone.utc) if dt.tzinfo is None else dt.astimezone(timezone.utc)
+
+
+class NoteBullet(BaseModel):
+    id: str = Field(min_length=1, max_length=64)
+    text: str = Field(default="", max_length=NOTE_MAX_TEXT)
+
+
+class NoteCreate(BaseModel):
+    client_id: str = Field(min_length=1, max_length=64)
+    workspace: str = "madridonomy"
+    title: str = Field(default="", max_length=200)
+    bullets: list[NoteBullet] = Field(default_factory=list, max_length=NOTE_MAX_BULLETS)
+
+
+class NoteUpdate(BaseModel):
+    title: str | None = Field(default=None, max_length=200)
+    bullets: list[NoteBullet] | None = Field(default=None, max_length=NOTE_MAX_BULLETS)
+
+
+class NoteOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    client_id: str
+    workspace: str
+    title: str
+    bullets: list[NoteBullet] = []
+    created_at: datetime
+    updated_at: datetime
+
+    @field_validator("bullets", mode="before")
+    @classmethod
+    def _parse_bullets(cls, v):
+        return _parse_json_text(v, [])
+
+    @field_serializer("created_at", "updated_at")
+    def _utc(self, v: datetime) -> str:
+        return _as_utc(v).isoformat()
+
+
+# --- Send to phone ------------------------------------------------------------------------------------------------
+
+HANDOFF_MAX_SLIDES = 40
+
+
+class HandoffCreate(BaseModel):
+    title: str = Field(default="", max_length=200)
+    slide_urls: list[str] = Field(min_length=1, max_length=HANDOFF_MAX_SLIDES)
+    caption: str = Field(default="", max_length=5000)
+
+    @field_validator("slide_urls")
+    @classmethod
+    def _https_only(cls, urls: list[str]) -> list[str]:
+        for u in urls:
+            if not u.startswith("https://") or len(u) > 2048:
+                raise ValueError("Slide URLs must be https:// links (the hosted images).")
+        return urls
+
+
+class HandoffOut(BaseModel):
+    id: str
+    title: str
+    slide_urls: list[str]
+    caption: str
+    created_at: datetime
+    expires_at: datetime
+
+    @field_serializer("created_at", "expires_at")
+    def _utc(self, v: datetime) -> str:
+        return _as_utc(v).isoformat()

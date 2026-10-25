@@ -229,6 +229,28 @@ def test_resume_does_not_resubmit(client, env, monkeypatch):
     assert client.get(f"{URL}/jobs/{job_id}").json()["status"] == "succeeded"
 
 
+def test_list_resumes_stuck_jobs_without_resubmitting(client, env, monkeypatch):
+    class ImmediateThread:
+        def __init__(self, target=None, args=(), kwargs=None, daemon=None):
+            self._run = lambda: target(*(args or ()), **(kwargs or {}))
+
+        def start(self):
+            self._run()
+
+    monkeypatch.setattr(genjutsu.threading, "Thread", ImmediateThread)
+    sdk = use_sdk(monkeypatch, FakeSDK())
+    with SessionLocal() as db:
+        job = genjutsu.create_job(
+            db, video_tmp=_tmp_video(env), video_name="clip.mp4", images=[("a.png", png())], prompt="", resolution="720p", confirm_cost_usd=50,
+        )
+        job.status, job.request_id = "running", "req-existing"
+        db.commit()
+        job_id = job.id
+    listed = client.get(f"{URL}/jobs").json()
+    match = next(j for j in listed if j["id"] == job_id)
+    assert match["status"] == "succeeded" and sdk.submitted is None and sdk.uploads == []
+
+
 def _tmp_video(env) -> Path:
     path = env / "genjutsu" / "_tmp" / "t.mp4"
     path.parent.mkdir(parents=True, exist_ok=True)

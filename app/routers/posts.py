@@ -1,11 +1,13 @@
 import hashlib
 import json
 
+import cloudinary.exceptions
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
+from app.config import settings
 from app.database import get_db
 from app.models import CustomFont, PostDraft, Template
 from app.schemas import PostDraftCreate, PostDraftOut, PostDraftUpdate, TemplateOut
@@ -185,15 +187,33 @@ async def getty_search(query: str):
         raise HTTPException(status_code=501, detail=str(exc)) from exc
 
 
+@router.get("/hosting-status")
+def hosting_status():
+    """What publishing and Send to phone need, and which of it is missing. Cheap and side-effect free, so the editor
+    can check before it renders heavy files."""
+    ig_missing = [
+        name
+        for name, value in (("IG_ACCESS_TOKEN", settings.ig_access_token), ("IG_BUSINESS_ACCOUNT_ID", settings.ig_business_account_id))
+        if not value
+    ]
+    return {"hosting": media_hosting.status(), "instagram": {"configured": not ig_missing, "missing": ig_missing}}
+
+
 @router.post("/upload-to-host")
 async def upload_to_host(image: UploadFile = File(...)):
     """Uploads a composed image to Cloudinary and returns the public URL,
     for use in final_image_config.hosted_image_urls before publish."""
     image_bytes = await image.read()
+    if len(image_bytes) > media_hosting.MAX_IMAGE_BYTES:
+        mb = len(image_bytes) / 1024 / 1024
+        raise HTTPException(status_code=413, detail=f"This image is {mb:.1f} MB; Cloudinary's free plan accepts at most 10 MB per image.")
     try:
-        url = media_hosting.upload_image(image_bytes)
+        url = await run_in_threadpool(media_hosting.upload_image, image_bytes)  # big PNGs: don't block the event loop
     except MediaHostingNotConfigured as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except cloudinary.exceptions.Error as exc:
+        too_big = "too large" in str(exc).lower()
+        raise HTTPException(status_code=413 if too_big else 502, detail=f"Cloudinary rejected the upload: {exc}") from exc
     return {"url": url}
 
 
